@@ -1,0 +1,151 @@
+-- =========================================
+-- Generator module
+MODULE Generator(cmd, init_state)
+VAR
+    state : {on, off};
+DEFINE
+    is_on := (state = on);
+    is_off := (state = off);
+ASSIGN
+    init(state) := init_state;
+    next(state) :=
+        case
+            (cmd = cmd_on) : on;
+            (cmd = cmd_off) : off;
+            TRUE : state;
+        esac;
+
+
+-- =========================================
+-- Switch module (Circuit Breaker)
+MODULE Switch(cmd, init_state)
+VAR
+    state : {open, closed};
+DEFINE
+    is_open := (state = open);
+    is_closed := (state = closed);
+ASSIGN
+    init(state) := init_state;
+    next(state) :=
+        case
+            (cmd = cmd_open) : open;
+            (cmd = cmd_closed) : closed;
+            TRUE : state;
+        esac;
+
+-- =========================================
+-- Bus module
+MODULE Bus(in1, in2)
+VAR
+    state : {working, broken};
+DEFINE
+    is_broken := (state = broken);
+    is_powered := (state = working) & (count((in1), (in2)) = 1);
+ASSIGN
+    init(state) :=
+        case
+            (count((in1), (in2)) > 1) : broken;
+            TRUE : working;
+        esac;
+    next(state) :=
+        case
+          (count((in1), (in2)) > 1) : broken;
+          TRUE : state;
+        esac;
+
+
+-- =========================================
+-- System Configuration module
+MODULE SystemConfiguration(cmd_Gs, cmd_CBs)
+VAR
+  -- Initial states
+    init_G1 : {on, off};
+    init_G2 : {on, off};
+
+    init_GB1 : {open, closed};
+    init_GB2 : {open, closed};
+    init_BB1 : {open, closed};
+
+  -- Generators
+    G1 : Generator(cmd_Gs[0], init_G1);
+    G2 : Generator(cmd_Gs[1], init_G2);
+
+  -- Circuit Breakers
+    GB1 : Switch(cmd_CBs[0], init_GB1);
+    GB2 : Switch(cmd_CBs[1], init_GB2);
+    BB1 : Switch(cmd_CBs[2], init_BB1);
+
+  -- Buses
+    B1 : Bus(G1.is_on & GB1.is_closed, BB1.is_closed);
+    B2 : Bus(G2.is_on & GB2.is_closed, BB1.is_closed);
+
+ASSIGN
+    -- Initial states for components
+    init(init_G1) := off;
+    init(init_G2) := off;
+
+    init(init_GB1) := open;
+    init(init_GB2) := open;
+    init(init_BB1) := open;
+
+
+-- =========================================
+-- Controller module 
+MODULE Controller
+VAR
+    -- Generators (always ON for simplicity)
+    cmd_Gs : array 0..1 of {cmd_on, cmd_off};
+
+    -- Circuit Breakers: GB1, GB2, BB1
+    cmd_CBs : array 0..2 of {cmd_open, cmd_closed, nop};
+
+ASSIGN
+    -- Generators initially ON (first command is ON)
+    init(cmd_Gs[0]) := cmd_on;
+    init(cmd_Gs[1]) := cmd_on;
+
+    -- CBs initially opened (no power going through) -- first command is to open them
+    init(cmd_CBs[0]) := cmd_open; -- GB1
+    init(cmd_CBs[1]) := cmd_open; -- GB2
+    init(cmd_CBs[2]) := cmd_open; -- BB1
+
+    -- Generators are always ON
+    next(cmd_Gs[0]) := cmd_on;
+    next(cmd_Gs[1]) := cmd_on;
+
+    -- CBs can change nondeterministically
+    next(cmd_CBs[0]) := case
+        cmd_CBs[0] = cmd_closed : cmd_closed; -- stay closed forever once closed
+        TRUE : {cmd_open, cmd_closed};        -- can close if open
+    esac;
+
+    next(cmd_CBs[1]) := case
+        cmd_CBs[1] = cmd_closed : cmd_closed;
+        TRUE : {cmd_open, cmd_closed};
+    esac;
+
+    next(cmd_CBs[2]) := case
+        cmd_CBs[2] = cmd_closed : cmd_closed;
+        TRUE : {cmd_open, cmd_closed};
+    esac;
+
+
+  -- Forbidden invalid combos:
+TRANS !( (next(cmd_CBs[0]) = cmd_closed) & (next(cmd_CBs[2]) = cmd_closed) );
+TRANS !( (next(cmd_CBs[1]) = cmd_closed) & (next(cmd_CBs[2]) = cmd_closed) );
+
+
+
+-- =========================================
+-- Main module
+MODULE main
+VAR
+    SC : SystemConfiguration(CN.cmd_Gs, CN.cmd_CBs);
+    CN : Controller();
+
+
+-- =========================================
+-- Buses never breaks:
+LTLSPEC G !SC.B1.is_broken
+LTLSPEC G !SC.B2.is_broken
+
