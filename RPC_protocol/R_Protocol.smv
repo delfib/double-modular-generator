@@ -17,7 +17,7 @@ ASSIGN
             client_state := sending & full_channel : sending;
             client_state := sending & -full_channel : sent;
             client_state := sent & -full_channel : sending;
-            client_state := sent & full_channel : sent;                  
+            client_state := sent & full_channel : sent;                  -- !!!DUDA: deberia quedarse en sent hasta que la queue deje de estar full o cambiarse a sending en algun momento?
         esac;
 
     -- the tail pointer is only updated once a message is sent
@@ -26,3 +26,34 @@ ASSIGN
             ch_tail_client := sending & -full_channel : (ch_tail_client+1) mod Q_SIZE;
             TRUE : ch_tail_client;
         esac;
+
+
+
+-- Server module
+MODULE Server(ch_tail_client, Q_SIZE)
+VAR
+    server_state = {receiving, received}
+    ch_head_server : 0..Q_SIZE-1;       --     
+    empty_channel : boolean; 
+
+ASSIGN
+    init(server_state) := receiving;
+    init(ch_head_server) := 0;
+
+    next(empty_channel) := (ch_tail_client = ch_head_server);
+    next(server_state) :=
+        case
+            server_state := receiving & empty_channel : receiving;
+            server_state := receiving & -empty_channel : received;
+            server_state := received & -empty_channel : receiving;
+            server_state := received & empty_channel : received;       
+
+    -- the head pointer is only updated once a message is read
+    next(ch_head_server) :=
+        case
+            ch_head_server := receiving & -empty_channel : (ch_head_server + 1) mod Q_SIZE;
+            TRUE : ch_head_server;
+        esac;
+
+
+
