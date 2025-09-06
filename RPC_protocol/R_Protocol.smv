@@ -1,0 +1,28 @@
+-- R Protocol
+
+-- Client module 
+MODULE Client(ch_head_server, Q_SIZE)
+VAR
+    client_state : {sending, sent};     -- State of the client: sending = 0, sent = 1
+    ch_tail_client : 0..Q_SIZE-1;       -- Tail pointer of the request queue
+    full_channel : boolean; 
+
+ASSIGN
+    init(client_state) := sending;
+    init(ch_tail_client) := 0;
+
+    next(full_channel) := ((ch_tail_client + 1) mod Q_SIZE) = ch_head_server;    
+    next(client_state) :=
+        case
+            client_state := sending & full_channel : sending;
+            client_state := sending & -full_channel : sent;
+            client_state := sent & -full_channel : sending;
+            client_state := sent & full_channel : sent;                  
+        esac;
+
+    -- the tail pointer is only updated once a message is sent
+    next(ch_tail_client) :=
+        case
+            ch_tail_client := sending & -full_channel : (ch_tail_client+1) mod Q_SIZE;
+            TRUE : ch_tail_client;
+        esac;
