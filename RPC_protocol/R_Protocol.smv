@@ -4,7 +4,7 @@
 MODULE Client(ch_head_server, Q_SIZE)
 VAR
     client_state : {sending, sent};     -- State of the client: sending = 0, sent = 1
-    ch_tail_client : 0..Q_SIZE-1;       -- Tail pointer of the request queue
+    ch_tail_client : 0..3;       -- Tail pointer of the request queue
     full_channel : boolean; 
 
 ASSIGN
@@ -14,16 +14,17 @@ ASSIGN
     next(full_channel) := ((ch_tail_client + 1) mod Q_SIZE) = ch_head_server;    
     next(client_state) :=
         case
-            client_state := sending & full_channel : sending;
-            client_state := sending & -full_channel : sent;
-            client_state := sent & -full_channel : sending;
-            client_state := sent & full_channel : sent;                  -- !!!DUDA: deberia quedarse en sent hasta que la queue deje de estar full o cambiarse a sending en algun momento?
+            client_state = sending & full_channel : sending;
+            client_state = sending & !full_channel : sent;
+            client_state = sent & !full_channel : sending;
+            client_state = sent & full_channel : sent;                  -- !!!DUDA: deberia quedarse en sent hasta que la queue deje de estar full o cambiarse a sending en algun momento?
         esac;
 
     -- the tail pointer is only updated once a message is sent
     next(ch_tail_client) :=
         case
-            ch_tail_client := sending & -full_channel : (ch_tail_client+1) mod Q_SIZE;
+            -- ch_tail_client = sending & !full_channel : (ch_tail_client+1) mod Q_SIZE;
+            client_state = sending & !full_channel : (ch_tail_client+1) mod Q_SIZE;
             TRUE : ch_tail_client;
         esac;
 
@@ -32,8 +33,8 @@ ASSIGN
 -- Server module
 MODULE Server(ch_tail_client, Q_SIZE)
 VAR
-    server_state = {receiving, received}
-    ch_head_server : 0..Q_SIZE-1;       --     
+    server_state : {receiving, received};    -- State of the server: receiving = 0, received = 1
+    ch_head_server : 0..3;           -- Head pointer of the request queue
     empty_channel : boolean; 
 
 ASSIGN
@@ -43,17 +44,45 @@ ASSIGN
     next(empty_channel) := (ch_tail_client = ch_head_server);
     next(server_state) :=
         case
-            server_state := receiving & empty_channel : receiving;
-            server_state := receiving & -empty_channel : received;
-            server_state := received & -empty_channel : receiving;
-            server_state := received & empty_channel : received;       
+            server_state = receiving & empty_channel : receiving;
+            server_state = receiving & !empty_channel : received;
+            server_state = received & !empty_channel : receiving;
+            server_state = received & empty_channel : received;         -- !!!DUDA: deberia quedarse en received hasta que la queue deje de estar empty o cambiarse a receiving en algun momento?
+        esac;
 
     -- the head pointer is only updated once a message is read
     next(ch_head_server) :=
         case
-            ch_head_server := receiving & -empty_channel : (ch_head_server + 1) mod Q_SIZE;
+            -- ch_head_server = receiving & !empty_channel : (ch_head_server + 1) mod Q_SIZE;
+            server_state = receiving & !empty_channel : (ch_head_server + 1) mod Q_SIZE;
             TRUE : ch_head_server;
         esac;
+
+
+
+-- Top module for R Protocol
+MODULE main
+DEFINE
+    Q_SIZE := 4;  
+VAR
+    client : Client(server.ch_head_server, Q_SIZE);
+    server : Server(client.ch_tail_client, Q_SIZE);
+
+
+-- The client should never send a message when the queue is full
+SPEC AG !(client.full_channel & client.client_state = sent)
+-- The server should never try to receive from an empty queue
+SPEC AG !(server.empty_channel & server.server_state = received)
+
+SPEC AG (client.ch_tail_client >= 0 & client.ch_tail_client < Q_SIZE)
+SPEC AG (server.ch_head_server >= 0 & server.ch_head_server < Q_SIZE)
+
+SPEC AG (client.client_state = sent -> AF server.server_state = received)
+SPEC AG (client.client_state = sending -> AF client.client_state = sent)
+SPEC AG (server.server_state = receiving -> AF server.server_state = received)
+
+
+
 
 
 
