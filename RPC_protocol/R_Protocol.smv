@@ -10,6 +10,7 @@ VAR
 ASSIGN
     init(client_state) := sending;
     init(ch_tail_client) := 0;
+    init(full_channel) := FALSE;
 
     next(full_channel) := ((ch_tail_client + 1) mod Q_SIZE) = ch_head_server;    
     next(client_state) :=
@@ -27,7 +28,8 @@ ASSIGN
             client_state = sending & !full_channel : (ch_tail_client+1) mod Q_SIZE;
             TRUE : ch_tail_client;
         esac;
-
+FAIRNESS
+    running
 
 
 -- Server module
@@ -40,6 +42,7 @@ VAR
 ASSIGN
     init(server_state) := receiving;
     init(ch_head_server) := 0;
+    init(empty_channel) := TRUE;
 
     next(empty_channel) := (ch_tail_client = ch_head_server);
     next(server_state) :=
@@ -57,7 +60,8 @@ ASSIGN
             server_state = receiving & !empty_channel : (ch_head_server + 1) mod Q_SIZE;
             TRUE : ch_head_server;
         esac;
-
+FAIRNESS
+    running
 
 
 -- Top module for R Protocol
@@ -65,14 +69,22 @@ MODULE main
 DEFINE
     Q_SIZE := 4;  
 VAR
-    client : Client(server.ch_head_server, Q_SIZE);
-    server : Server(client.ch_tail_client, Q_SIZE);
+    client : process Client(server.ch_head_server, Q_SIZE);
+    server : process Server(client.ch_tail_client, Q_SIZE);
+       
 
 
 -- The client should never send a message when the queue is full
-SPEC AG !(client.full_channel & client.client_state = sent)
--- The server should never try to receive from an empty queue
-SPEC AG !(server.empty_channel & server.server_state = received)
+-- If the client is in sent with a full queue, then in the next step it
+-- must not go to sending while the queue is still full.
+SPEC AG ((client.full_channel & client.client_state = sent) 
+        -> AX !(client.full_channel & client.client_state = sending))
+
+-- The server should never receive from an empty queue
+-- If the server is in the received state with an empty queue, in the next step 
+-- it must not go to the receiving state with an empty queue.
+SPEC AG ((server.empty_channel & server.server_state = received) 
+        -> AX !(server.empty_channel & server.server_state = receiving))
 
 SPEC AG (client.ch_tail_client >= 0 & client.ch_tail_client < Q_SIZE)
 SPEC AG (server.ch_head_server >= 0 & server.ch_head_server < Q_SIZE)
@@ -80,6 +92,7 @@ SPEC AG (server.ch_head_server >= 0 & server.ch_head_server < Q_SIZE)
 SPEC AG (client.client_state = sent -> AF server.server_state = received)
 SPEC AG (client.client_state = sending -> AF client.client_state = sent)
 SPEC AG (server.server_state = receiving -> AF server.server_state = received)
+SPEC EF (EG(client.client_state = sent))
 
 
 
