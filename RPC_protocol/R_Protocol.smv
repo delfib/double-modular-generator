@@ -18,7 +18,7 @@ ASSIGN
             client_state = sending & full_channel : sending;
             client_state = sending & !full_channel : sent;
             client_state = sent & !full_channel : sending;
-            client_state = sent & full_channel : sent;                  -- !!!DUDA: deberia quedarse en sent hasta que la queue deje de estar full o cambiarse a sending en algun momento?
+            client_state = sent & full_channel : sent;                 
         esac;
 
     -- the tail pointer is only updated once a message is sent
@@ -50,7 +50,7 @@ ASSIGN
             server_state = receiving & empty_channel : receiving;
             server_state = receiving & !empty_channel : received;
             server_state = received & !empty_channel : receiving;
-            server_state = received & empty_channel : received;         -- !!!DUDA: deberia quedarse en received hasta que la queue deje de estar empty o cambiarse a receiving en algun momento?
+            server_state = received & empty_channel : received;         
         esac;
 
     -- the head pointer is only updated once a message is read
