@@ -1,0 +1,201 @@
+-- RR Protocol Client Module
+
+-- Client module 
+MODULE Client(ch_head_server, ack_ch_tail_server, Q_SIZE)
+VAR
+    ----------------------
+    -- Request queue vars
+    ----------------------
+    client_state_for_request : {sending, sent};   
+    ch_tail_client : 0..3;                      -- tail pointer for request queue
+    full_request_channel : boolean; 
+    waiting_for_reply : boolean;
+
+    ----------------------
+    -- Reply queue vars
+    ----------------------
+    client_state_for_ack : {receiving, received};
+    ack_ch_head_client : 0..3;                  -- head pointer for reply queue
+    empty_ack_channel : boolean;
+
+
+ASSIGN
+    init(client_state_for_request) := sending;
+    init(ch_tail_client) := 0;
+    init(client_state_for_ack) := receiving;
+    init(ack_ch_head_client) := 0;
+
+    init(full_request_channel) := FALSE;
+    init(empty_ack_channel) := TRUE;
+    init(waiting_for_reply) := FALSE;
+
+    ----------------------
+    -- Request queue logic
+    ----------------------
+    next(full_request_channel) := ((ch_tail_client + 1) mod Q_SIZE) = ch_head_server;    
+    
+    next(client_state_for_request) :=
+        case
+            client_state_for_request = sending & full_request_channel : sending;
+            client_state_for_request = sending & !full_request_channel & !waiting_for_reply : sent;
+            client_state_for_request = sending & !full_request_channel & waiting_for_reply : sending;
+            client_state_for_request = sent & !full_request_channel : sending;
+            client_state_for_request = sent & full_request_channel : sent;                 
+        esac;
+
+    next(ch_tail_client) :=
+        case
+            client_state_for_request = sending & !full_request_channel & !waiting_for_reply : (ch_tail_client+1) mod Q_SIZE;
+            TRUE : ch_tail_client;
+        esac;
+
+    next(waiting_for_reply) :=
+    case
+        client_state_for_request = sending & !full_request_channel : TRUE;
+        client_state_for_ack = received : FALSE;
+        TRUE : waiting_for_reply;
+    esac;
+
+    ----------------------
+    -- Reply queue logic
+    ----------------------
+    next(empty_ack_channel) := (ack_ch_head_client = ack_ch_tail_server);
+    next(client_state_for_ack) :=
+        case
+            client_state_for_ack = receiving & empty_ack_channel : receiving;
+            client_state_for_ack = receiving & !empty_ack_channel : received;
+            client_state_for_ack = received & !empty_ack_channel : receiving; 
+            client_state_for_ack = received & empty_ack_channel : received;             
+        esac;
+    
+    next(ack_ch_head_client) :=
+        case
+            client_state_for_ack = receiving & !empty_ack_channel : (ack_ch_head_client + 1) mod Q_SIZE;
+            TRUE : ack_ch_head_client;
+        esac;
+
+FAIRNESS
+    running
+
+
+
+
+
+
+
+
+
+
+
+-- Server Module
+MODULE Server(request_ch_tail_client, ack_ch_head_client, Q_SIZE)
+VAR
+    --------------------------------
+    -- Request handling
+    --------------------------------
+    server_state_for_request : {receiving, received};
+    ch_head_server : 0..3;                      -- head pointer for request queue
+    empty_request_channel : boolean;
+    has_request : boolean;
+
+    --------------------------------
+    -- Reply handling
+    --------------------------------
+    server_state_for_ack_send : {sending, sent};
+    ack_ch_tail_server : 0..3;                      -- tail pointer for reply queue
+    full_ack_channel : boolean;
+    
+
+ASSIGN
+    init(server_state_for_request) := receiving;
+    init(ch_head_server) := 0;
+    init(server_state_for_ack_send) := sending;
+    init(ack_ch_tail_server) := 0;
+
+    init(empty_request_channel) := TRUE;
+    init(full_ack_channel) := FALSE;
+    init(has_request) := FALSE;
+
+    --------------------------------
+    -- Request channel logic
+    --------------------------------
+    next(empty_request_channel) := (ch_head_server = request_ch_tail_client);
+
+    next(server_state_for_request) :=
+        case
+            server_state_for_request = receiving & empty_request_channel : receiving; 
+            server_state_for_request = receiving & !empty_request_channel : received; 
+            server_state_for_request = received & !empty_request_channel : receiving; 
+            server_state_for_request = received & empty_request_channel : received;        
+        esac;
+
+    next(ch_head_server) :=
+        case
+            server_state_for_request = receiving & !empty_request_channel : (ch_head_server + 1) mod Q_SIZE;
+            TRUE : ch_head_server;
+        esac;
+
+    --------------------------------
+    -- Reply channel logic
+    --------------------------------
+    next(full_ack_channel) := ((ack_ch_tail_server + 1) mod Q_SIZE) = ack_ch_head_client;
+
+    next(server_state_for_ack_send) :=
+        case
+            server_state_for_ack_send = sending & full_ack_channel : sending;       
+            server_state_for_ack_send = sending & !full_ack_channel & has_request : sent;
+            server_state_for_ack_send = sending & !full_ack_channel & !has_request : sending;
+            server_state_for_ack_send = sent & !full_ack_channel : sending;        
+            server_state_for_ack_send = sent & full_ack_channel : sent;              
+        esac;
+
+    next(ack_ch_tail_server) :=
+        case
+            server_state_for_ack_send = sending & !full_ack_channel & has_request : (ack_ch_tail_server + 1) mod Q_SIZE;
+            TRUE : ack_ch_tail_server;
+        esac;
+    
+    next(has_request) :=
+    case
+        server_state_for_request = received : TRUE;
+        server_state_for_ack_send = sent : FALSE;
+        TRUE : has_request;
+    esac;
+
+FAIRNESS
+    running
+
+
+
+
+
+
+
+-- Top module for RR Protocol
+MODULE main
+DEFINE
+    Q_SIZE := 4; 
+VAR
+    client : process Client(server.ch_head_server, server.ack_ch_tail_server, Q_SIZE);
+    server : process Server(client.ch_tail_client, client.ack_ch_head_client, Q_SIZE);
+
+
+
+-- Client must wait for reply after sending
+SPEC AG (client.client_state_for_request = sent -> AX client.waiting_for_reply)
+
+-- Client eventually receives a reply for every request
+SPEC AG (client.waiting_for_reply -> AF client.client_state_for_ack = received)
+SPEC AG (client.client_state_for_request = sent -> AF client.client_state_for_ack = received)
+
+
+-- Server only replies if there was a request
+SPEC AG (server.server_state_for_ack_send = sent -> server.has_request)
+
+-- Once the server has a request, it eventually sends a reply
+SPEC AG (server.has_request -> AF server.server_state_for_ack_send = sent)
+
+
+-- The system does not deadlock
+SPEC EF (EG TRUE)                 
+
