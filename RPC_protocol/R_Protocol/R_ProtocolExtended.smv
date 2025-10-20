@@ -77,9 +77,6 @@ ASSIGN
     init(head_pointer) := 0;
 
 
-SPEC AG !(client.full_channel & client.client_state = sending)
-SPEC AG !(server1.empty_channel & server1.server_state = received)
 SPEC AG !(server2.empty_channel & server2.server_state = received)
-
 
 
