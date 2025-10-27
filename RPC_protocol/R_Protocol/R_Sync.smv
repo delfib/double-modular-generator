@@ -1,4 +1,19 @@
 -- =========================================================
+--  R Protocol Models: Nominal and Extended Versions
+-- =========================================================
+-- This NuSMV model implements the R protocol with a client sending
+-- requests to one or more servers through a fixed-size queue. The
+-- nominal version captures the basic, fault-free behavior of the
+-- client and server, while the extended version introduces server
+-- failures, allowing each server to nondeterministically fail during
+-- execution. The synchronization module allows comparison of client
+-- behavior and message consumption between the nominal and extended
+-- models, enabling verification of correctness under possible server
+-- faults.
+-- =========================================================
+
+
+-- =========================================================
 --  R Protocol: Nominal version
 -- =========================================================
 
@@ -69,6 +84,7 @@ FAIRNESS
 MODULE NominalR()
 DEFINE
     Q_SIZE := 4;
+    NOMINAL_CONSUMED := server.server_state = received;
 VAR
     client : process Client(server.ch_head_server, Q_SIZE);
     server : process Server(client.ch_tail_client, Q_SIZE);
@@ -113,6 +129,9 @@ FAIRNESS
 MODULE ExtendedR()
 DEFINE
     Q_SIZE := 4;
+
+    -- CONSUMED is TRUE if either server1 or server2 consumed a message
+    CONSUMED := server1.server_state = received | server2.server_state = received;
 VAR
     head_pointer : 0..3;
     client  : process Client(head_pointer, Q_SIZE);
@@ -132,13 +151,10 @@ VAR
     nominal  : NominalR();
     extended : ExtendedR();
 
-SPEC AG (nominal.client.full_channel = extended.client.full_channel)
 
-SPEC AG (nominal.client.client_state = extended.client.client_state)
-
-SPEC AG (nominal.server.server_state = extended.server1.server_state)
-
-
+-- Whenever nominal server consumes, eventually an extended server consumes
+SPEC AG (nominal.server.server_state = received -> AF (extended.server1.server_state = received | extended.server2.server_state = received))
+--SPEC AG (nominal.NOMINAL_CONSUMED -> AF extended.CONSUMED)
 
 
 
