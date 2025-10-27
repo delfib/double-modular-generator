@@ -50,7 +50,8 @@ ASSIGN
             server_state = receiving & empty_channel : receiving;
             server_state = receiving & !empty_channel : received;
             server_state = received & !empty_channel : receiving;
-            server_state = received & empty_channel : received;         
+            server_state = received & empty_channel : received;   
+            TRUE : server_state; 
         esac;
 
     next(ch_head_server) :=
