@@ -84,7 +84,7 @@ FAIRNESS
 MODULE NominalR()
 DEFINE
     Q_SIZE := 4;
-    NOMINAL_CONSUMED := server.server_state = received;
+    CONSUMED := server.server_state = received;
 VAR
     client : process Client(server.ch_head_server, Q_SIZE);
     server : process Server(client.ch_tail_client, Q_SIZE);
@@ -153,8 +153,7 @@ VAR
 
 
 -- Whenever nominal server consumes, eventually an extended server consumes
-SPEC AG (nominal.server.server_state = received -> AF (extended.server1.server_state = received | extended.server2.server_state = received))
---SPEC AG (nominal.NOMINAL_CONSUMED -> AF extended.CONSUMED)
+SPEC AG (nominal.CONSUMED -> AF extended.CONSUMED)
 
 
 

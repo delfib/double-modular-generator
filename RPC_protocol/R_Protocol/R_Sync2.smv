@@ -18,7 +18,7 @@
 MODULE Client(ch_head_server, Q_SIZE)
 VAR
     client_state : {sending, sent};     -- State of the client: sending = 0, sent = 1
-    ch_tail_client : 0..3;       -- Tail pointer of the request queue
+    ch_tail_client : 0..3;              -- Tail pointer of the request queue
     full_channel : boolean; 
 
 ASSIGN
@@ -82,6 +82,7 @@ FAIRNESS
 MODULE NominalR()
 DEFINE
     Q_SIZE := 4;
+    CONSUMED := server.server_state = received;
 VAR
     client : process Client(server.ch_head_server, Q_SIZE);
     server : process Server(client.ch_tail_client, Q_SIZE);
@@ -95,7 +96,7 @@ MODULE ServerExtended(ch_tail_client, Q_SIZE, head_pointer, N)
 VAR
     server_state : {receiving, received, failed};  
     empty_channel : boolean; 
-    counter : 0.. N;
+    counter : 0..N;
 
 ASSIGN
     init(server_state) := receiving;
@@ -136,6 +137,8 @@ FAIRNESS
 MODULE ExtendedRCounter()
 DEFINE
     Q_SIZE := 4;
+    -- CONSUMED is TRUE if either server1 or server2 consumed a message
+    CONSUMED := server1.server_state = received | server2.server_state = received;
 VAR
     head_pointer : 0..3;
     client  : process Client(head_pointer, Q_SIZE);
@@ -155,7 +158,7 @@ VAR
 
 
 -- Whenever nominal server consumes, eventually an extended server consumes
-SPEC AG (nominal.server.server_state = received -> AF (extended.server1.server_state = received | extended.server2.server_state = received))
+SPEC AG (nominal.CONSUMED -> AF extended.CONSUMED)
 
 
 
