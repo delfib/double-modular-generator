@@ -1,0 +1,149 @@
+-- =========================================================
+-- Queue module
+-- =========================================================
+MODULE Queue(Q_SIZE, produce, consume)
+VAR
+    head : 0..3;
+    tail : 0..3;
+    full : boolean;
+    empty : boolean;
+    produceFlag : boolean;              -- can the variable produce be used?
+    consumeFlag : boolean;              -- can the variable consume be used?
+
+ASSIGN
+    init(head) := 0;
+    init(tail) := 0;
+    init(full) := FALSE;
+    init(empty) := TRUE;
+    init(produceFlag) := FALSE;
+    init(consumeFlag) := FALSE;
+    
+    next(full) := ((tail + 1) mod Q_SIZE = head);
+    next(empty) := (tail = head);
+
+    next(consumeFlag) := case
+        consume & !consumeFlag : TRUE;
+        TRUE : FALSE;
+    esac;
+
+    next(head) := case
+        consume & consumeFlag : (head + 1) mod Q_SIZE;
+        TRUE    : head;
+    esac;
+
+    next(produceFlag) := case
+        produce & !produceFlag : TRUE;
+        TRUE : FALSE;
+    esac;
+
+    next(tail) := case
+        produce & produceFlag : (tail + 1) mod Q_SIZE;
+        TRUE    : tail;
+    esac;
+
+FAIRNESS
+    running
+
+-- =========================================================
+-- Client module
+-- =========================================================
+MODULE Client(queue)
+VAR
+    client_state : {sending, sent};
+    initialized : boolean;
+
+ASSIGN
+    init(client_state) := sending;
+    init(initialized) := FALSE;
+
+    next(client_state) :=
+        case
+            client_state = sending & queue.full : sending;
+            client_state = sending & !queue.full : sent;
+            client_state = sent & !queue.full : sending;
+            client_state = sent & queue.full : sent;
+        esac;
+
+    next(initialized) := TRUE;
+
+DEFINE
+    readyToProduce := initialized & (client_state = sending & !queue.full);
+FAIRNESS
+    running
+
+-- =========================================================
+-- Server module (nominal)
+-- =========================================================
+MODULE Server(queue)
+VAR
+    server_state : {receiving, received};
+    initialized : boolean;
+ASSIGN
+    init(server_state) := receiving;
+    init(initialized) := FALSE;
+
+    next(server_state) :=
+        case
+            server_state = receiving & queue.empty : receiving;
+            server_state = receiving & !queue.empty : received;
+            server_state = received & !queue.empty : receiving;
+            server_state = received & queue.empty : received;
+        esac;
+
+    next(initialized) := TRUE;
+
+DEFINE
+    readyToConsume := initialized & (server_state = receiving & !queue.empty);
+FAIRNESS
+    running
+
+-- =========================================================
+-- Nominal wrapper
+-- =========================================================
+MODULE NominalR()
+DEFINE
+    Q_SIZE := 4;
+    CONSUMED := server.server_state = received;
+VAR
+    client : process Client(queue);
+    server : process Server(queue);
+    queue  : process Queue(Q_SIZE, client.readyToProduce, server.readyToConsume);
+
+
+
+-- =========================================================
+-- Synchronization module
+-- =========================================================
+MODULE Sync()
+VAR
+    nominal  : NominalR();
+
+
+-- Whenever nominal server consumes, eventually an extended server consumes
+--SPEC AF (nominal.CONSUMED)
+SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
+
+--SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
+
+-- If the tail changes, it must be because the client produced
+SPEC AG (EX (nominal.queue.tail != nominal.queue.tail) -> nominal.client.readyToProduce)
+
+-- While produceFlag is FALSE, tail should not move 
+SPEC AG (nominal.queue.produceFlag = FALSE -> AX (nominal.queue.tail = nominal.queue.tail))
+
+-- If the head changes, it must be because the server consumed
+SPEC AG (EX (nominal.queue.head != nominal.queue.head) -> nominal.server.readyToConsume)
+
+-- While consumeFlag is FALSE, head should not move 
+SPEC AG (nominal.queue.consumeFlag = FALSE -> AX (nominal.queue.head = nominal.queue.head))
+
+
+
+
+
+-- =========================================================
+-- Main module
+-- =========================================================
+MODULE main
+VAR
+    sync : Sync();
