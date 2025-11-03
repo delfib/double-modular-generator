@@ -1,48 +1,44 @@
 -- =========================================================
 -- Queue module
 -- =========================================================
-MODULE Queue(Q_SIZE, produce, consume)
+MODULE Queue(Q_SIZE, readyToProduce, readyToConsume)
 VAR
     head : 0..3;
     tail : 0..3;
     full : boolean;
     empty : boolean;
-    produceFlag : boolean;              -- can the variable produce be used?
-    consumeFlag : boolean;              -- can the variable consume be used?
+    -- enqueueRequest : boolean;
 
 ASSIGN
     init(head) := 0;
     init(tail) := 0;
     init(full) := FALSE;
     init(empty) := TRUE;
-    init(produceFlag) := FALSE;
-    init(consumeFlag) := FALSE;
-    
+    -- init(enqueueRequest) := FALSE;
+
     next(full) := ((tail + 1) mod Q_SIZE = head);
     next(empty) := (tail = head);
 
-    next(consumeFlag) := case
-        consume & !consumeFlag : TRUE;
-        TRUE : FALSE;
+    next(tail) := case
+        -- readyToProduce & enqueueRequest : (tail + 1) mod Q_SIZE;
+        readyToProduce : (tail + 1) mod Q_SIZE;
+        TRUE    : tail;
     esac;
+
+    -- next(enqueueRequest) := case
+       -- TRUE : FALSE;
+        -- FALSE & readyToProduce : TRUE;
+        -- FALSE & !readyToProduce : FALSE;
+    -- esac;
 
     next(head) := case
-        consume & consumeFlag : (head + 1) mod Q_SIZE;
+        readyToConsume : (head + 1) mod Q_SIZE;
         TRUE    : head;
-    esac;
-
-    next(produceFlag) := case
-        produce & !produceFlag : TRUE;
-        TRUE : FALSE;
-    esac;
-
-    next(tail) := case
-        produce & produceFlag : (tail + 1) mod Q_SIZE;
-        TRUE    : tail;
     esac;
 
 FAIRNESS
     running
+
 
 -- =========================================================
 -- Client module
@@ -70,6 +66,7 @@ DEFINE
     readyToProduce := initialized & (client_state = sending & !queue.full);
 FAIRNESS
     running
+
 
 -- =========================================================
 -- Server module (nominal)
@@ -119,24 +116,45 @@ VAR
     nominal  : NominalR();
 
 
--- Whenever nominal server consumes, eventually an extended server consumes
---SPEC AF (nominal.CONSUMED)
+-- The client should never write when the queue is full
+SPEC AG !(nominal.queue.full & nominal.client.readyToProduce)
+
+-- The server should never consume when the queue is empty
+SPEC AG !(nominal.queue.empty & nominal.server.readyToConsume)
+
+-- The queue’s head and tail must always stay within bounds
+SPEC AG (nominal.queue.head >= 0 & nominal.queue.head < nominal.queue.Q_SIZE &
+         nominal.queue.tail >= 0 & nominal.queue.tail < nominal.queue.Q_SIZE)
+
+-- If the server is ready to consume, eventually it will receive
+SPEC AG (nominal.server.readyToConsume -> AF nominal.server.server_state = received)
+
+-- If the client is ready to produce, eventually it will send
+SPEC AG (nominal.client.readyToProduce -> AF nominal.client.client_state = sent)
+
+-- The system should never reach a state where no process can move, no deadlock
+SPEC AG EF TRUE
+
+-- Every produced message is eventually consumed
 SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
 
---SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
+-- Under fairness, the queue shouldn’t stay full or empty forever unless the other side is stopped
+SPEC AG AF (!nominal.queue.full & !nominal.queue.empty)
+
+
+
+-- Whenever nominal server consumes, eventually an extended server consumes
+SPEC AF (nominal.CONSUMED)
+SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
 
 -- If the tail changes, it must be because the client produced
 SPEC AG (EX (nominal.queue.tail != nominal.queue.tail) -> nominal.client.readyToProduce)
 
 -- While produceFlag is FALSE, tail should not move 
-SPEC AG (nominal.queue.produceFlag = FALSE -> AX (nominal.queue.tail = nominal.queue.tail))
+SPEC AG (nominal.queue.readyToProduce = FALSE -> AX (nominal.queue.tail = nominal.queue.tail))
 
--- If the head changes, it must be because the server consumed
-SPEC AG (EX (nominal.queue.head != nominal.queue.head) -> nominal.server.readyToConsume)
-
--- While consumeFlag is FALSE, head should not move 
-SPEC AG (nominal.queue.consumeFlag = FALSE -> AX (nominal.queue.head = nominal.queue.head))
-
+-- If produceFlag is TRUE, the tail should move
+SPEC AG (nominal.queue.readyToProduce = TRUE -> AX (nominal.queue.tail != nominal.queue.tail))
 
 
 
