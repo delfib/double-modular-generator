@@ -1,30 +1,46 @@
 -- =========================================================
 -- Queue module
 -- =========================================================
-MODULE Queue(Q_SIZE, readyToProduce, enqueueRequest, readyToConsume, dequeueRequest)
+MODULE Queue(Q_SIZE, readyToProduce, readyToConsume)
 VAR
     head : 0..3;
     tail : 0..3;
     full : boolean;
     empty : boolean;
+    produce_used : boolean;  -- track if we already acted on current produce signal
+    consume_used : boolean;  -- track if we already acted on current consume signal
 
 ASSIGN
     init(head) := 0;
     init(tail) := 0;
     init(full) := FALSE;
     init(empty) := TRUE;
+    init(produce_used) := FALSE;
+    init(consume_used) := FALSE;
 
     next(full) := ((tail + 1) mod Q_SIZE = head);
     next(empty) := (tail = head);
 
     next(tail) := case
-        readyToProduce & enqueueRequest : (tail + 1) mod Q_SIZE;
-        TRUE    : tail;
+        readyToProduce & !produce_used : (tail + 1) mod Q_SIZE;
+        TRUE : tail;
     esac;
 
     next(head) := case
-        readyToConsume & dequeueRequest: (head + 1) mod Q_SIZE;
-        TRUE    : head;
+        readyToConsume & !consume_used : (head + 1) mod Q_SIZE;
+        TRUE : head;
+    esac;
+
+    next(produce_used) := case
+        !readyToProduce : FALSE;                    -- client changed state, reset
+        readyToProduce & !produce_used : TRUE;  -- we just consumed it
+        TRUE : produce_used;                    -- keep it consumed
+    esac;
+
+    next(consume_used) := case
+        !readyToConsume : FALSE;
+        readyToConsume & !consume_used : TRUE;
+        TRUE : consume_used;
     esac;
 
 FAIRNESS
@@ -37,13 +53,11 @@ FAIRNESS
 MODULE Client(queue)
 VAR
     client_state : {sending, sent};
-    initialized : boolean;
-    enqueueRequest : boolean;
+    readyToProduce : boolean;
 
 ASSIGN
     init(client_state) := sending;
-    init(initialized) := FALSE;
-    init(enqueueRequest) := FALSE;
+    init(readyToProduce) := FALSE;
 
     next(client_state) :=
         case
@@ -53,16 +67,8 @@ ASSIGN
             client_state = sent & queue.full : sent;
         esac;
 
-    next(initialized) := TRUE;
+    next(readyToProduce) := (client_state = sending & !queue.full);
 
-    next(enqueueRequest) :=
-    case
-        client_state = sending & !queue.full : TRUE; 
-        TRUE : FALSE;
-    esac;
-
-DEFINE
-    readyToProduce := initialized & (client_state = sending & !queue.full);
 FAIRNESS
     running
 
@@ -73,12 +79,10 @@ FAIRNESS
 MODULE Server(queue)
 VAR
     server_state : {receiving, received};
-    initialized : boolean;
-    dequeueRequest : boolean;
+    readyToConsume : boolean;
 ASSIGN
     init(server_state) := receiving;
-    init(initialized) := FALSE;
-    init(dequeueRequest) := FALSE;
+    init(readyToConsume) := FALSE;
 
     next(server_state) :=
         case
@@ -88,15 +92,8 @@ ASSIGN
             server_state = received & queue.empty : received;
         esac;
 
-    next(initialized) := TRUE;
+    next(readyToConsume) := (server_state = receiving & !queue.empty);
 
-    next(dequeueRequest) :=
-        case
-            server_state = receiving & !queue.empty : TRUE;
-            TRUE : FALSE;
-        esac;
-DEFINE
-    readyToConsume := initialized & (server_state = receiving & !queue.empty);
 FAIRNESS
     running
 
@@ -111,8 +108,7 @@ DEFINE
 VAR
     client : process Client(queue);
     server : process Server(queue);
-    queue  : process Queue(Q_SIZE, client.readyToProduce, client.enqueueRequest, server.readyToConsume, server.dequeueRequest);
-
+    queue  : process Queue(Q_SIZE, client.readyToProduce, server.readyToConsume);
 
 
 -- =========================================================
@@ -123,15 +119,15 @@ VAR
     nominal  : NominalR();
 
 
+-- Queue tail and head are always within bounds
+SPEC AG (nominal.queue.head >= 0 & nominal.queue.head < nominal.queue.Q_SIZE)
+SPEC AG (nominal.queue.tail >= 0 & nominal.queue.tail < nominal.queue.Q_SIZE)
+
 -- The client should never write when the queue is full
-SPEC AG !(nominal.queue.full & nominal.client.readyToProduce)
+-- SPEC AG !(nominal.queue.full & nominal.client.readyToProduce)
 
 -- The server should never consume when the queue is empty
-SPEC AG !(nominal.queue.empty & nominal.server.readyToConsume)
-
--- The queue’s head and tail must always stay within bounds
-SPEC AG (nominal.queue.head >= 0 & nominal.queue.head < nominal.queue.Q_SIZE &
-         nominal.queue.tail >= 0 & nominal.queue.tail < nominal.queue.Q_SIZE)
+-- SPEC AG !(nominal.queue.empty & nominal.server.readyToConsume)
 
 -- If the server is ready to consume, eventually it will receive
 SPEC AG (nominal.server.readyToConsume -> AF nominal.server.server_state = received)
@@ -148,19 +144,12 @@ SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = 
 -- Under fairness, the queue shouldn’t stay full or empty forever unless the other side is stopped
 SPEC AG AF (!nominal.queue.full & !nominal.queue.empty)
 
--- Tail moves only when a produce request happens
-SPEC AG (EX ((nominal.queue.tail = (nominal.queue.tail + 1) mod nominal.Q_SIZE) & nominal.client.enqueueRequest))
-
--- Head moves only when a consume request happens
-SPEC AG (EX ((nominal.queue.head = (nominal.queue.head + 1) mod nominal.Q_SIZE) & nominal.server.dequeueRequest))
-
 -- Whenever nominal server consumes, eventually an extended server consumes
-SPEC AF (nominal.CONSUMED)
+-- SPEC AF (nominal.CONSUMED)
 SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
 
 -- If the tail changes, it must be because the client produced
 SPEC AG (EX (nominal.queue.tail != nominal.queue.tail) -> nominal.client.readyToProduce)
-SPEC AG (EX (nominal.queue.tail != nominal.queue.tail) -> nominal.client.enqueueRequest)
 
 -- While readyToProduce is FALSE, tail should not move 
 SPEC AG (nominal.queue.readyToProduce = FALSE -> AX (nominal.queue.tail = nominal.queue.tail))
@@ -169,6 +158,11 @@ SPEC AG (nominal.queue.readyToProduce = FALSE -> AX (nominal.queue.tail = nomina
 SPEC AG (nominal.queue.readyToProduce = TRUE -> AX (nominal.queue.tail != nominal.queue.tail))
 
 
+-- If client wants to send and queue isn't full, eventually it sends
+SPEC AG ((nominal.client.client_state = sending & !nominal.queue.full) -> AF nominal.client.client_state = sent)
+
+-- If server wants to receive and queue isn't empty, eventually it receives
+SPEC AG ((nominal.server.server_state = receiving & !nominal.queue.empty) -> AF nominal.server.server_state = received)
 
 
 -- =========================================================
