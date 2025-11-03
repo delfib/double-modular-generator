@@ -1,38 +1,29 @@
 -- =========================================================
 -- Queue module
 -- =========================================================
-MODULE Queue(Q_SIZE, readyToProduce, readyToConsume)
+MODULE Queue(Q_SIZE, readyToProduce, enqueueRequest, readyToConsume, dequeueRequest)
 VAR
     head : 0..3;
     tail : 0..3;
     full : boolean;
     empty : boolean;
-    -- enqueueRequest : boolean;
 
 ASSIGN
     init(head) := 0;
     init(tail) := 0;
     init(full) := FALSE;
     init(empty) := TRUE;
-    -- init(enqueueRequest) := FALSE;
 
     next(full) := ((tail + 1) mod Q_SIZE = head);
     next(empty) := (tail = head);
 
     next(tail) := case
-        -- readyToProduce & enqueueRequest : (tail + 1) mod Q_SIZE;
-        readyToProduce : (tail + 1) mod Q_SIZE;
+        readyToProduce & enqueueRequest : (tail + 1) mod Q_SIZE;
         TRUE    : tail;
     esac;
 
-    -- next(enqueueRequest) := case
-       -- TRUE : FALSE;
-        -- FALSE & readyToProduce : TRUE;
-        -- FALSE & !readyToProduce : FALSE;
-    -- esac;
-
     next(head) := case
-        readyToConsume : (head + 1) mod Q_SIZE;
+        readyToConsume & dequeueRequest: (head + 1) mod Q_SIZE;
         TRUE    : head;
     esac;
 
@@ -47,10 +38,12 @@ MODULE Client(queue)
 VAR
     client_state : {sending, sent};
     initialized : boolean;
+    enqueueRequest : boolean;
 
 ASSIGN
     init(client_state) := sending;
     init(initialized) := FALSE;
+    init(enqueueRequest) := FALSE;
 
     next(client_state) :=
         case
@@ -61,6 +54,12 @@ ASSIGN
         esac;
 
     next(initialized) := TRUE;
+
+    next(enqueueRequest) :=
+    case
+        client_state = sending & !queue.full : TRUE; 
+        TRUE : FALSE;
+    esac;
 
 DEFINE
     readyToProduce := initialized & (client_state = sending & !queue.full);
@@ -75,9 +74,11 @@ MODULE Server(queue)
 VAR
     server_state : {receiving, received};
     initialized : boolean;
+    dequeueRequest : boolean;
 ASSIGN
     init(server_state) := receiving;
     init(initialized) := FALSE;
+    init(dequeueRequest) := FALSE;
 
     next(server_state) :=
         case
@@ -89,10 +90,16 @@ ASSIGN
 
     next(initialized) := TRUE;
 
+    next(dequeueRequest) :=
+        case
+            server_state = receiving & !queue.empty : TRUE;
+            TRUE : FALSE;
+        esac;
 DEFINE
     readyToConsume := initialized & (server_state = receiving & !queue.empty);
 FAIRNESS
     running
+
 
 -- =========================================================
 -- Nominal wrapper
@@ -104,7 +111,7 @@ DEFINE
 VAR
     client : process Client(queue);
     server : process Server(queue);
-    queue  : process Queue(Q_SIZE, client.readyToProduce, server.readyToConsume);
+    queue  : process Queue(Q_SIZE, client.readyToProduce, client.enqueueRequest, server.readyToConsume, server.dequeueRequest);
 
 
 
@@ -141,7 +148,11 @@ SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = 
 -- Under fairness, the queue shouldn’t stay full or empty forever unless the other side is stopped
 SPEC AG AF (!nominal.queue.full & !nominal.queue.empty)
 
+-- Tail moves only when a produce request happens
+SPEC AG (EX ((nominal.queue.tail = (nominal.queue.tail + 1) mod nominal.Q_SIZE) & nominal.client.enqueueRequest))
 
+-- Head moves only when a consume request happens
+SPEC AG (EX ((nominal.queue.head = (nominal.queue.head + 1) mod nominal.Q_SIZE) & nominal.server.dequeueRequest))
 
 -- Whenever nominal server consumes, eventually an extended server consumes
 SPEC AF (nominal.CONSUMED)
@@ -149,8 +160,9 @@ SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = 
 
 -- If the tail changes, it must be because the client produced
 SPEC AG (EX (nominal.queue.tail != nominal.queue.tail) -> nominal.client.readyToProduce)
+SPEC AG (EX (nominal.queue.tail != nominal.queue.tail) -> nominal.client.enqueueRequest)
 
--- While produceFlag is FALSE, tail should not move 
+-- While readyToProduce is FALSE, tail should not move 
 SPEC AG (nominal.queue.readyToProduce = FALSE -> AX (nominal.queue.tail = nominal.queue.tail))
 
 -- If produceFlag is TRUE, the tail should move
