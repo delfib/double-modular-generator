@@ -9,6 +9,7 @@ VAR
     empty : boolean;
     produce_used : boolean;  -- track if we already acted on current produce signal
     consume_used : boolean;  -- track if we already acted on current consume signal
+    
 
 ASSIGN
     init(head) := 0;
@@ -32,7 +33,7 @@ ASSIGN
     esac;
 
     next(produce_used) := case
-        !readyToProduce : FALSE;                    -- client changed state, reset
+        !readyToProduce : FALSE;                -- client changed state, reset
         readyToProduce & !produce_used : TRUE;  -- we just consumed it
         TRUE : produce_used;                    -- keep it consumed
     esac;
@@ -54,20 +55,29 @@ MODULE Client(queue)
 VAR
     client_state : {sending, sent};
     readyToProduce : boolean;
+    prev_tail : 0..3;  -- track when queue actually moves
 
 ASSIGN
     init(client_state) := sending;
     init(readyToProduce) := FALSE;
+    init(prev_tail) := 0;
+
+    next(prev_tail) := queue.tail;
 
     next(client_state) :=
         case
             client_state = sending & queue.full : sending;
             client_state = sending & !queue.full : sent;
-            client_state = sent & !queue.full : sending;
+            client_state = sent & !queue.full & prev_tail != queue.tail : sending;
             client_state = sent & queue.full : sent;
+            TRUE : client_state;
         esac;
-
-    next(readyToProduce) := (client_state = sending & !queue.full);
+ 
+    next(readyToProduce) := case
+        client_state = sending & !queue.full : TRUE;   
+        client_state = sent & prev_tail = queue.tail & !queue.full : TRUE;  -- keep TRUE while waiting for queue to get updated
+        TRUE : FALSE;  
+    esac;
 
 FAIRNESS
     running
@@ -80,19 +90,28 @@ MODULE Server(queue)
 VAR
     server_state : {receiving, received};
     readyToConsume : boolean;
+    prev_head : 0..3;
 ASSIGN
     init(server_state) := receiving;
     init(readyToConsume) := FALSE;
+    init(prev_head) := 0;
+
+    next(prev_head) := queue.head;
 
     next(server_state) :=
         case
             server_state = receiving & queue.empty : receiving;
             server_state = receiving & !queue.empty : received;
-            server_state = received & !queue.empty : receiving;
+            server_state = received & !queue.empty & prev_head != queue.head: receiving;
             server_state = received & queue.empty : received;
+            TRUE : server_state;
         esac;
 
-    next(readyToConsume) := (server_state = receiving & !queue.empty);
+    next(readyToConsume) := case
+        server_state = receiving & !queue.empty : TRUE;   
+        server_state = received & prev_head = queue.head & !queue.empty: TRUE;  -- keep TRUE while waiting for queue to get updated
+        TRUE : FALSE;  
+    esac;
 
 FAIRNESS
     running
