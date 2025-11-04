@@ -1,48 +1,42 @@
 -- =========================================================
 -- Queue module
 -- =========================================================
-MODULE Queue(Q_SIZE, readyToProduce, readyToConsume)
+MODULE Queue(Q_SIZE, readyToProduce, readyToConsume, client_toggle, server_toggle)
 VAR
     head : 0..3;
     tail : 0..3;
-    full : boolean;
-    empty : boolean;
-    produce_used : boolean;  -- track if we already acted on current produce signal
-    consume_used : boolean;  -- track if we already acted on current consume signal
-    
+    last_client_toggle : boolean;  -- last toggle value we saw
+    last_server_toggle : boolean;
 
 ASSIGN
     init(head) := 0;
     init(tail) := 0;
-    init(full) := FALSE;
-    init(empty) := TRUE;
-    init(produce_used) := FALSE;
-    init(consume_used) := FALSE;
-
-    next(full) := ((tail + 1) mod Q_SIZE = head);
-    next(empty) := (tail = head);
+    init(last_client_toggle) := FALSE;
+    init(last_server_toggle) := FALSE;
 
     next(tail) := case
-        readyToProduce & !produce_used : (tail + 1) mod Q_SIZE;
+        readyToProduce & (client_toggle != last_client_toggle) : (tail + 1) mod Q_SIZE;    -- produce if toggle changed (new request detected)
         TRUE : tail;
     esac;
 
     next(head) := case
-        readyToConsume & !consume_used : (head + 1) mod Q_SIZE;
+        readyToConsume & (server_toggle != last_server_toggle) : (head + 1) mod Q_SIZE;
         TRUE : head;
     esac;
 
-    next(produce_used) := case
-        !readyToProduce : FALSE;                -- client changed state, reset
-        readyToProduce & !produce_used : TRUE;  -- we just consumed it
-        TRUE : produce_used;                    -- keep it consumed
+    next(last_client_toggle) := case
+        readyToProduce & (client_toggle != last_client_toggle) : client_toggle;
+        TRUE : last_client_toggle;
     esac;
 
-    next(consume_used) := case
-        !readyToConsume : FALSE;
-        readyToConsume & !consume_used : TRUE;
-        TRUE : consume_used;
+    next(last_server_toggle) := case
+        readyToConsume & (server_toggle != last_server_toggle) : server_toggle;
+        TRUE : last_server_toggle;
     esac;
+
+DEFINE
+    full := ((tail + 1) mod Q_SIZE = head);
+    empty := (tail = head);
 
 FAIRNESS
     running
@@ -54,12 +48,12 @@ FAIRNESS
 MODULE Client(queue)
 VAR
     client_state : {sending, sent};
-    readyToProduce : boolean;
-    prev_tail : 0..3;  -- track when queue actually moves
+    prev_tail : 0..3;
+    request_toggle : boolean;           -- toggles on each new request
 
 ASSIGN
     init(client_state) := sending;
-    init(readyToProduce) := FALSE;
+    init(request_toggle) := FALSE;
     init(prev_tail) := 0;
 
     next(prev_tail) := queue.tail;
@@ -73,11 +67,15 @@ ASSIGN
             TRUE : client_state;
         esac;
  
-    next(readyToProduce) := case
-        client_state = sending & !queue.full : TRUE;   
-        client_state = sent & prev_tail = queue.tail & !queue.full : TRUE;  -- keep TRUE while waiting for queue to get updated
-        TRUE : FALSE;  
+    -- Toggle the bit each time we make a new request
+    next(request_toggle) := case
+        client_state = sending & !queue.full : !request_toggle;                     -- toggle!
+        client_state = sent & prev_tail = queue.tail & !queue.full : request_toggle; 
+        TRUE : request_toggle;                                                      -- keep same value otherwise
     esac;
+
+DEFINE
+    readyToProduce := (client_state = sent);  -- signal we're waiting
 
 FAIRNESS
     running
@@ -89,11 +87,10 @@ FAIRNESS
 MODULE Server(queue)
 VAR
     server_state : {receiving, received};
-    readyToConsume : boolean;
     prev_head : 0..3;
+    request_toggle : boolean;  
 ASSIGN
     init(server_state) := receiving;
-    init(readyToConsume) := FALSE;
     init(prev_head) := 0;
 
     next(prev_head) := queue.head;
@@ -107,11 +104,14 @@ ASSIGN
             TRUE : server_state;
         esac;
 
-    next(readyToConsume) := case
-        server_state = receiving & !queue.empty : TRUE;   
-        server_state = received & prev_head = queue.head & !queue.empty: TRUE;  -- keep TRUE while waiting for queue to get updated
-        TRUE : FALSE;  
+    next(request_toggle) := case
+        server_state = receiving & !queue.empty : !request_toggle;                   
+        server_state = received & prev_head = queue.head & !queue.empty : request_toggle; 
+        TRUE : request_toggle;                                                    
     esac;
+
+DEFINE
+    readyToConsume := (server_state = received); 
 
 FAIRNESS
     running
@@ -127,7 +127,7 @@ DEFINE
 VAR
     client : process Client(queue);
     server : process Server(queue);
-    queue  : process Queue(Q_SIZE, client.readyToProduce, server.readyToConsume);
+    queue : process Queue(Q_SIZE, client.readyToProduce, server.readyToConsume, client.request_toggle, server.request_toggle);
 
 
 -- =========================================================
