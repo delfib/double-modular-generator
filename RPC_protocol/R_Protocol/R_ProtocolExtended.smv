@@ -1,0 +1,194 @@
+
+-- =========================================================
+--  Extended R Protocol with Independent Failure Counters
+-- =========================================================
+-- This model is an extension of the nominal R Protocol to include
+-- fault-tolerant behavior using independent counters for each server.
+--
+-- Each extended server has its own counter, initialized to a fixed
+-- value N. On each execution step of the server, the counter
+-- decrements by 1. When the counter reaches zero, the corresponding
+-- server transitions to the 'failed' state.
+-- =========================================================
+
+-- =========================================================
+-- Extended Queue (handles 2 servers)
+-- =========================================================
+MODULE QueueExtended(Q_SIZE, readyToProduce, readyToConsume1, readyToConsume2, client_toggle, server1_toggle, server2_toggle)
+VAR
+    head : 0..3;
+    tail : 0..3;
+    last_client_toggle : boolean;
+    last_server1_toggle : boolean;
+    last_server2_toggle : boolean;
+
+ASSIGN
+    init(head) := 0;
+    init(tail) := 0;
+    init(last_client_toggle) := FALSE;
+    init(last_server1_toggle) := FALSE;
+    init(last_server2_toggle) := FALSE;
+
+    next(tail) := case
+        readyToProduce & (client_toggle != last_client_toggle) : (tail + 1) mod Q_SIZE;
+        TRUE : tail;
+    esac;
+
+    -- Head advances if EITHER server consumes (toggle changed)
+    next(head) := case
+        readyToConsume1 & (server1_toggle != last_server1_toggle) : (head + 1) mod Q_SIZE;
+        readyToConsume2 & (server2_toggle != last_server2_toggle) : (head + 1) mod Q_SIZE;
+        TRUE : head;
+    esac;
+
+    next(last_client_toggle) := case
+        readyToProduce & (client_toggle != last_client_toggle) : client_toggle;
+        TRUE : last_client_toggle;
+    esac;
+
+    next(last_server1_toggle) := case
+        readyToConsume1 & (server1_toggle != last_server1_toggle) : server1_toggle;
+        TRUE : last_server1_toggle;
+    esac;
+
+    next(last_server2_toggle) := case
+        readyToConsume2 & (server2_toggle != last_server2_toggle) : server2_toggle;
+        TRUE : last_server2_toggle;
+    esac;
+
+DEFINE
+    full := ((tail + 1) mod Q_SIZE = head);
+    empty := (tail = head);
+
+FAIRNESS
+    running
+
+-- =========================================================
+-- Client module
+-- =========================================================
+MODULE Client(queue)
+VAR
+    client_state : {sending, sent};
+    prev_tail : 0..3;
+    request_toggle : boolean;           -- toggles on each new request
+
+ASSIGN
+    init(client_state) := sending;
+    init(request_toggle) := FALSE;
+    init(prev_tail) := 0;
+
+    next(prev_tail) := case
+        client_state = sending : queue.tail;  
+        TRUE : prev_tail;
+    esac;
+
+    next(client_state) :=
+        case
+            client_state = sending & queue.full : sending;
+            client_state = sending & !queue.full : sent;
+            client_state = sent & !queue.full & prev_tail != queue.tail : sending;
+            client_state = sent & queue.full : sent;
+            TRUE : client_state;
+        esac;
+ 
+    -- Toggle the bit each time we make a new request
+    next(request_toggle) := case
+        client_state = sending & !queue.full : !request_toggle;                     -- toggle!
+        client_state = sent & prev_tail = queue.tail & !queue.full : request_toggle; 
+        TRUE : request_toggle;                                                      -- keep same value otherwise
+    esac;
+
+DEFINE
+    readyToProduce := (client_state = sent);  -- signal we're waiting
+
+FAIRNESS
+    running
+
+
+-- =========================================================
+-- Server module 
+-- =========================================================
+MODULE ServerExtended(queue, N)
+VAR
+    server_state : {receiving, received, failed};
+    prev_head : 0..3;
+    request_toggle : boolean;  
+    counter : 0..N;
+ASSIGN
+    init(server_state) := receiving;
+    init(request_toggle) := FALSE;
+    init(prev_head) := 0;
+    init(counter) := N;
+
+    next(counter) :=
+        case
+            server_state != failed & counter > 0 : counter - 1;
+            TRUE : counter;
+        esac;
+        
+    next(prev_head) := case
+        server_state = receiving : queue.head;  
+        TRUE : prev_head;
+    esac;
+
+    next(server_state) :=
+        case
+            counter = 0 : failed;
+            server_state = receiving & queue.empty : receiving;
+            server_state = receiving & !queue.empty : received;
+            server_state = received & !queue.empty & prev_head != queue.head: receiving;
+            server_state = received & queue.empty : received;
+            server_state = failed : failed;
+            TRUE : server_state;
+        esac;
+
+    next(request_toggle) := case
+        server_state = receiving & !queue.empty : !request_toggle;                   
+        server_state = received & prev_head = queue.head & !queue.empty : request_toggle; 
+        TRUE : request_toggle;                                                    
+    esac;
+
+DEFINE
+    readyToConsume := (server_state = received); 
+
+FAIRNESS
+    running
+
+
+
+-- =========================================================
+-- Extended model wrapper (2 servers with counters)
+-- =========================================================
+MODULE ExtendedR()
+DEFINE
+    Q_SIZE := 4;
+    N1 := 5;  
+    N2 := 7;  
+
+VAR
+    client : process Client(queue);
+    server1 : process ServerExtended(queue, N1);
+    server2 : process ServerExtended(queue, N2);
+    queue : process QueueExtended(Q_SIZE, 
+                                  client.readyToProduce, 
+                                  server1.readyToConsume, 
+                                  server2.readyToConsume,
+                                  client.request_toggle, 
+                                  server1.request_toggle, 
+                                  server2.request_toggle);
+        
+-- =========================================================
+-- Main module
+-- =========================================================
+MODULE main
+VAR
+    extended  : ExtendedR();
+
+
+-- ==========================================================
+-- SAFETY PROPERTIES
+-- ==========================================================
+
+-- Queue tail and head are always within bounds
+SPEC AG (extended.queue.head >= 0 & extended.queue.head < extended.Q_SIZE)
+SPEC AG (extended.queue.tail >= 0 & extended.queue.tail < extended.Q_SIZE)
