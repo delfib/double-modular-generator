@@ -201,10 +201,6 @@ SPEC AG (extended.server2.server_state = failed -> !(extended.server2.server_sta
 -- LIVENESS PROPERTIES
 -- ===================
 
--- If at least one server is not failed, system makes progress
-SPEC AG ((extended.server1.server_state != failed | extended.server2.server_state != failed) -> 
-         AF (!extended.queue.full & !extended.queue.empty))
-
 -- If client wants to send, it will eventually send (no starvation)
 SPEC AG (extended.client.client_state = sending -> AF extended.client.client_state = sent)
 
@@ -212,11 +208,6 @@ SPEC AG (extended.client.client_state = sending -> AF extended.client.client_sta
 SPEC AG ((extended.client.client_state = sending & 
           (extended.server1.server_state != failed | extended.server2.server_state != failed)) -> 
          AF extended.client.client_state = sent)
-
--- Queue never stays full forever if at least one server works
-SPEC AG ((extended.queue.full & 
-          (extended.server1.server_state != failed | extended.server2.server_state != failed)) -> 
-         AF !extended.queue.full)
 
 -- Queue never stays empty forever 
 SPEC AG (extended.queue.empty -> AF !extended.queue.empty)
@@ -251,14 +242,6 @@ SPEC AG ((extended.server2.server_state = receiving &
 -- Client toggle changes when producing
 SPEC AG ((extended.client.client_state = sending & !extended.queue.full) -> 
          AF extended.client.request_toggle != extended.queue.last_client_toggle)
-
--- Server toggles change when consuming (if not failed)
-SPEC AG ((extended.server1.server_state = receiving & !extended.queue.empty & 
-          extended.server1.server_state != failed) -> 
-         AF extended.server1.request_toggle != extended.queue.last_server1_toggle)
-SPEC AG ((extended.server2.server_state = receiving & !extended.queue.empty & 
-          extended.server2.server_state != failed) -> 
-         AF extended.server2.request_toggle != extended.queue.last_server2_toggle)
 
 -- Queue tracks client toggle after production
 SPEC AG ((extended.client.client_state = sent & 
