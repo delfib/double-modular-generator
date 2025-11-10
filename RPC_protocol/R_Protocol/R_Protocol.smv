@@ -1,7 +1,7 @@
 -- =========================================================
 -- Queue module
 -- =========================================================
-MODULE Queue(Q_SIZE, readyToProduce, readyToConsume, client_toggle, server_toggle)
+MODULE Queue(Q_SIZE, client_toggle, server_toggle)
 VAR
     head : 0..3;
     tail : 0..3;
@@ -15,22 +15,22 @@ ASSIGN
     init(last_server_toggle) := FALSE;
 
     next(tail) := case
-        readyToProduce & (client_toggle != last_client_toggle) : (tail + 1) mod Q_SIZE;    -- produce if toggle changed (new request detected)
+        (client_toggle != last_client_toggle) : (tail + 1) mod Q_SIZE;    -- produce if toggle changed (new request detected)
         TRUE : tail;
     esac;
 
     next(head) := case
-        readyToConsume & (server_toggle != last_server_toggle) : (head + 1) mod Q_SIZE;
+        (server_toggle != last_server_toggle) : (head + 1) mod Q_SIZE;
         TRUE : head;
     esac;
 
     next(last_client_toggle) := case
-        readyToProduce & (client_toggle != last_client_toggle) : client_toggle;
+        (client_toggle != last_client_toggle) : client_toggle;
         TRUE : last_client_toggle;
     esac;
 
     next(last_server_toggle) := case
-        readyToConsume & (server_toggle != last_server_toggle) : server_toggle;
+        (server_toggle != last_server_toggle) : server_toggle;
         TRUE : last_server_toggle;
     esac;
 
@@ -73,12 +73,8 @@ ASSIGN
     -- Toggle the bit each time we make a new request
     next(request_toggle) := case
         client_state = sending & !queue.full : !request_toggle;                     -- toggle!
-        client_state = sent & prev_tail = queue.tail & !queue.full : request_toggle; 
         TRUE : request_toggle;                                                      -- keep same value otherwise
     esac;
-
-DEFINE
-    readyToProduce := (client_state = sent);  -- signal we're waiting
 
 FAIRNESS
     running
@@ -113,12 +109,9 @@ ASSIGN
 
     next(request_toggle) := case
         server_state = receiving & !queue.empty : !request_toggle;                   
-        server_state = received & prev_head = queue.head & !queue.empty : request_toggle; 
         TRUE : request_toggle;                                                    
     esac;
 
-DEFINE
-    readyToConsume := (server_state = received); 
 
 FAIRNESS
     running
@@ -133,7 +126,7 @@ DEFINE
 VAR
     client : process Client(queue);
     server : process Server(queue);
-    queue : process Queue(Q_SIZE, client.readyToProduce, server.readyToConsume, client.request_toggle, server.request_toggle);
+    queue : process Queue(Q_SIZE, client.request_toggle, server.request_toggle);
 
 
 -- =========================================================
@@ -169,7 +162,6 @@ SPEC AG (nominal.queue.empty <-> (nominal.queue.tail = nominal.queue.head))
 
 -- System never deadlocks - always eventually reaches a non-full, non-empty state
 SPEC AG (AF (!nominal.queue.full & !nominal.queue.empty))
-SPEC AG AF (!nominal.queue.full & !nominal.queue.empty)
 
 -- If client wants to send, it will eventually send (no starvation)
 SPEC AG (nominal.client.client_state = sending -> AF nominal.client.client_state = sent)
@@ -184,26 +176,13 @@ SPEC AG (nominal.queue.full -> AF !nominal.queue.full)
 SPEC AG (nominal.queue.empty -> AF !nominal.queue.empty)
 
 -- Client eventually produces infinitely often
-SPEC AG (AF nominal.client.readyToProduce)
+SPEC AG (AF nominal.client.client_state = sent)
 
 -- Server eventually consumes infinitely often
-SPEC AG (AF nominal.server.readyToConsume)
-
--- If the server is ready to consume, eventually it will receive
-SPEC AG (nominal.server.readyToConsume -> AF nominal.server.server_state = received)
-
--- If the client is ready to produce, eventually it will send
-SPEC AG (nominal.client.readyToProduce -> AF nominal.client.client_state = sent)
-
+SPEC AG (AF nominal.server.server_state = received)
 
 -- FUNCTIONAL CORRECTNESS
 -- ======================
-
--- Client in 'sent' state means it's ready to produce
-SPEC AG (nominal.client.client_state = sent <-> nominal.client.readyToProduce)
-
--- Server in 'received' state means it's ready to consume
-SPEC AG (nominal.server.server_state = received <-> nominal.server.readyToConsume)
 
 -- Every produced message is eventually consumed
 SPEC AG (nominal.client.client_state = sent -> AF nominal.server.server_state = received)
@@ -229,22 +208,22 @@ SPEC AG ((nominal.server.server_state = receiving & !nominal.queue.empty) ->
          AF nominal.server.request_toggle != nominal.queue.last_server_toggle)
 
 -- Queue's last_client_toggle tracks client's request_toggle after production
-SPEC AG ((nominal.client.readyToProduce & 
+SPEC AG ((nominal.client.client_state = sent & 
           nominal.client.request_toggle != nominal.queue.last_client_toggle) ->
          AF nominal.queue.last_client_toggle = nominal.client.request_toggle)
 
 -- Queue's last_server_toggle tracks server's request_toggle after consumption
-SPEC AG ((nominal.server.readyToConsume & 
+SPEC AG ((nominal.server.server_state = received & 
           nominal.server.request_toggle != nominal.queue.last_server_toggle) ->
          AF nominal.queue.last_server_toggle = nominal.server.request_toggle)
 
 -- last_client_toggle only changes when client produces
 SPEC AG (nominal.queue.last_client_toggle != nominal.queue.last_client_toggle ->
-         nominal.client.readyToProduce)
+         nominal.client.client_state = sent)
 
 -- last_server_toggle only changes when server consumes
 SPEC AG (nominal.queue.last_server_toggle != nominal.queue.last_server_toggle ->
-         nominal.server.readyToConsume)
+         nominal.server.server_state = received)
 
 
 -- FAIRNESS VERIFICATION
@@ -256,7 +235,7 @@ SPEC AG (AF nominal.server.server_state = receiving)
 
 
 -- REACHABILITY
--- ==========================
+-- ============
 
 -- It's possible to reach a full queue
 SPEC EF nominal.queue.full
