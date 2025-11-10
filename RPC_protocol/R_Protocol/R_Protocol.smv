@@ -48,24 +48,17 @@ FAIRNESS
 MODULE Client(queue)
 VAR
     client_state : {sending, sent};
-    prev_tail : 0..3;
-    request_toggle : boolean;           -- toggles on each new request
+    request_toggle : boolean;           
 
 ASSIGN
     init(client_state) := sending;
     init(request_toggle) := FALSE;
-    init(prev_tail) := 0;
-
-    next(prev_tail) := case
-        client_state = sending : queue.tail;  
-        TRUE : prev_tail;
-    esac;
 
     next(client_state) :=
         case
             client_state = sending & queue.full : sending;
             client_state = sending & !queue.full : sent;
-            client_state = sent & !queue.full & prev_tail != queue.tail : sending;
+            client_state = sent & !queue.full & request_toggle = queue.last_client_toggle : sending;
             client_state = sent & queue.full : sent;
             TRUE : client_state;
         esac;
@@ -86,23 +79,16 @@ FAIRNESS
 MODULE Server(queue)
 VAR
     server_state : {receiving, received};
-    prev_head : 0..3;
     request_toggle : boolean;  
 ASSIGN
     init(server_state) := receiving;
     init(request_toggle) := FALSE;
-    init(prev_head) := 0;
-
-    next(prev_head) := case
-        server_state = receiving : queue.head;  
-        TRUE : prev_head;
-    esac;
 
     next(server_state) :=
         case
             server_state = receiving & queue.empty : receiving;
             server_state = receiving & !queue.empty : received;
-            server_state = received & !queue.empty & prev_head != queue.head: receiving;
+            server_state = received & !queue.empty & request_toggle = queue.last_server_toggle: receiving;
             server_state = received & queue.empty : received;
             TRUE : server_state;
         esac;
@@ -111,7 +97,6 @@ ASSIGN
         server_state = receiving & !queue.empty : !request_toggle;                   
         TRUE : request_toggle;                                                    
     esac;
-
 
 FAIRNESS
     running
@@ -194,6 +179,10 @@ SPEC AG ((nominal.client.client_state = sending &
 -- Server only transitions from receiving to received when queue is not empty
 SPEC AG ((nominal.server.server_state = receiving & 
           AX nominal.server.server_state = received) -> !nominal.queue.empty)
+
+-- If the server enters 'received' state, the queue head must eventually advance
+SPEC AG ((nominal.server.server_state = received) -> AF (nominal.server.request_toggle = nominal.queue.last_server_toggle))
+         
 
 
 -- TOGGLE SYNCHRONIZATION
