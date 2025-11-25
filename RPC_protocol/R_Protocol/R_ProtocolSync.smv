@@ -188,7 +188,7 @@ ASSIGN
         
     next(server_state) :=
         case
-            counter = 0 : failed;
+            counter = 0 : {failed, server_state};
             server_state = receiving & queue.empty : receiving;
             server_state = receiving & !queue.empty : received;
             server_state = received & !queue.empty & request_toggle = last_queue_toggle: receiving;
@@ -236,7 +236,16 @@ VAR
 
 
 -- Whenever nominal server consumes, eventually an extended server consumes
-SPEC AG (nominal.server.server_state = received -> AF (extended.server1.server_state = received | extended.server2.server_state = received))
+SPEC AG (
+    (nominal.server.server_state = received 
+     & (extended.server1.server_state != failed 
+        | extended.server2.server_state != failed))
+    ->
+    AF (extended.server1.server_state = received 
+        | extended.server2.server_state = received)
+)
+
+
 
 -- =========================================================
 --  Main Module (entry point)

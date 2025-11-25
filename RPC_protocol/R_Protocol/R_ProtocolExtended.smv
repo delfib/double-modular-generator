@@ -114,7 +114,7 @@ ASSIGN
         
     next(server_state) :=
         case
-            counter = 0 : failed;
+            counter = 0 : {failed, server_state};
             server_state = receiving & queue.empty : receiving;
             server_state = receiving & !queue.empty : received;
             server_state = received & !queue.empty & request_toggle = last_queue_toggle: receiving;
@@ -215,10 +215,6 @@ SPEC AG (extended.queue.empty -> AF !extended.queue.empty)
 -- If at least one server is working, client produces infinitely often
 SPEC AG ((extended.server1.server_state != failed | extended.server2.server_state != failed) -> 
          AG (AF extended.client.client_state = sent))
-        
--- Counter reaching zero leads to failure
-SPEC AG (extended.server1.counter = 0 -> AF extended.server1.server_state = failed)
-SPEC AG (extended.server2.counter = 0 -> AF extended.server2.server_state = failed)
 
 -- FUNCTIONAL CORRECTNESS
 -- ======================
@@ -302,7 +298,25 @@ SPEC AG ((extended.server2.server_state = received) ->
 -- =====================================================
 
 -- Both servers don't consume simultaneously (queue head advances by 1 max)
-SPEC AG !((extended.server1.server_state = received & 
-           extended.server1.request_toggle != extended.queue.last_server1_toggle) &
-          (extended.server2.server_state = received & 
-           extended.server2.request_toggle != extended.queue.last_server2_toggle))
+DEFINE q :=
+   !((extended.server1.server_state = received &
+      extended.server1.request_toggle != extended.queue.last_server1_toggle) &
+     (extended.server2.server_state = received &
+      extended.server2.request_toggle != extended.queue.last_server2_toggle));
+
+-- If a server reaches received AND in the next step the queue consumes, then q must hold.
+SPEC AG (
+    (
+      extended.server1.server_state = received 
+      & AX (extended.server1.request_toggle = extended.queue.last_server1_toggle)
+    )
+    -> q
+)
+
+SPEC AG (
+    (
+      extended.server2.server_state = received 
+      & AX (extended.server2.request_toggle = extended.queue.last_server2_toggle)
+    )
+    -> q
+)
