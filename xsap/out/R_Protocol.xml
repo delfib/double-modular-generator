@@ -1,0 +1,43 @@
+<fault_extension_info name="Server" desc="" smv_file="" fei_txt="R_Protocol.fei" lineno="1">
+  <extensions>
+    <nominal_component_extensions module="Server" desc="" lineno="2">
+      <fault_models>
+        <fault_model name="Server_faults" desc="" enabled="yes" lineno="3">
+          <instances/>
+          <fault_modes>
+            <fault_mode enabled="yes" probability="0" lineno="4">
+              <user_info>
+                <name>Server_StuckReceiving</name>
+                <desc></desc>
+              </user_info>
+              <effects_model name="StuckAtByValue_I" desc="" lineno="5">
+                <values>
+                  <input reads="term" value="receiving"/>
+                  <output writes="varout" reads="input" binds="server_state" type=""/>
+                </values>
+              </effects_model>
+              <local_dynamics_model name="Permanent" desc="" lineno="5">
+                <events/>
+              </local_dynamics_model>
+            </fault_mode>
+            <fault_mode enabled="yes" probability="0" lineno="11">
+              <user_info>
+                <name>Server_StuckReceived</name>
+                <desc></desc>
+              </user_info>
+              <effects_model name="StuckAtByValue_I" desc="" lineno="12">
+                <values>
+                  <input reads="term" value="received"/>
+                  <output writes="varout" reads="input" binds="server_state" type=""/>
+                </values>
+              </effects_model>
+              <local_dynamics_model name="Permanent" desc="" lineno="12">
+                <events/>
+              </local_dynamics_model>
+            </fault_mode>
+          </fault_modes>
+        </fault_model>
+      </fault_models>
+    </nominal_component_extensions>
+  </extensions>
+</fault_extension_info>

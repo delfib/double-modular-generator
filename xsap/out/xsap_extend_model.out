@@ -1,0 +1,45 @@
+*** This is xSAP 1.5.0 (compiled on Tue Oct 24 11:35:22 2023)
+*** Copyright (c) 2014, Fondazione Bruno Kessler
+
+*** For more information on xSAP see https://xsap.fbk.eu
+*** or email to <xsap@fbk.eu>.
+*** Please to report bugs access at https://xsap.fbk.eu/bugs
+*** Alternatively write to <xsap@fbk.eu>.
+
+*** This version of xSAP is linked to NuSMV 2.6.0.
+*** For more information on NuSMV see <http://nusmv.fbk.eu>
+*** or email to <nusmv-users@fbk.eu>.
+*** Copyright (C) 2010-2023, Fondazione Bruno Kessler
+
+*** This version of xSAP is linked to the CUDD library version 2.4.1
+*** Copyright (c) 1995-2004, Regents of the University of Colorado
+
+*** This version of xSAP is linked to the MiniSat SAT solver. 
+*** See http://minisat.se/MiniSat.html
+*** Copyright (c) 2003-2006, Niklas Een, Niklas Sorensson
+*** Copyright (c) 2007-2010, Niklas Sorensson
+
+*** This version of xSAP is linked to MathSAT
+*** Copyright (C) 2014 by Fondazione Bruno Kessler
+*** Copyright (C) 2014 by University of Trento
+*** See http://mathsat.fbk.eu
+
+WARNING *** Processes are still supported, but deprecated.      ***
+WARNING *** In the future processes may be no longer supported. ***
+
+
+----------------------------------------------------------------------
+Invoking:
+/home/delfina/Downloads/xSAP-1.5.0/xSAP/bin/xSAP-linux64 -source out/xsap_extend_model.cmd
+----------------------------------------------------------------------
+Content of out/xsap_extend_model.cmd is:
+set on_failure_script_quits
+read_model -i "R_Protocol.smv"
+flatten_hierarchy
+fe_load_doc -o "out/errors.log"  -p "/home/delfina/Downloads/xSAP-1.5.0/xSAP/data/schema" -i "out/expanded_R_Protocol.xml"
+fe_extend_module -m "out/fms_R_Protocol.xml"   -o "out/extended_R_Protocol.smv"
+quit
+
+----------------------------------------------------------------------
+xsap returned -11
+----------------------------------------------------------------------

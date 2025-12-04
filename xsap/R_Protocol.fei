@@ -1,0 +1,16 @@
+FAULT EXTENSION Server
+  EXTENSION OF MODULE Server
+    SLICE Server_faults AFFECTS server_state WITH
+      MODE Server_StuckReceiving :
+        Permanent StuckAtByValue_I (
+          data term << receiving,
+          data input << server_state,
+          data varout >> server_state
+        );
+
+      MODE Server_StuckReceived :
+        Permanent StuckAtByValue_I (
+          data term << received,
+          data input << server_state,
+          data varout >> server_state
+        );

@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<compass>
+ <fmlist>
+<fm name="nominal.server.Server_faults.mode_is_Server_StuckReceiving" nominal_value="FALSE" probability="0"></fm><fm name="nominal.server.Server_faults.mode_is_Server_StuckReceived" nominal_value="FALSE" probability="0"></fm>
+ </fmlist>
+ <cclist>
+ </cclist>
+ <obslist>
+ </obslist>
+</compass>

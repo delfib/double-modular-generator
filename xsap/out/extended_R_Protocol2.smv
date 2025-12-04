@@ -1,0 +1,248 @@
+
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE main
+    VAR
+        nominal : NominalR;
+        _masterCC : MasterCC#;
+SPEC AG (nominal.queue.head >= 0 & nominal.queue.head < nominal.queue.Q_SIZE)
+SPEC AG (nominal.queue.tail >= 0 & nominal.queue.tail < nominal.queue.Q_SIZE)
+
+-- Can the Server_StuckReceiving fault occur?
+SPEC EF (nominal.server.Server_faults.mode = Server_StuckReceiving#FAULT)
+
+-- Can the Server_StuckReceived fault occur?
+SPEC EF (nominal.server.Server_faults.mode = Server_StuckReceived#FAULT)
+
+-- Can ANY fault occur?
+SPEC EF (nominal.server.Server_faults.mode != NOMINAL)
+
+-- Can the system stay nominal forever? (This should be false if faults can occur)
+SPEC AG (nominal.server.Server_faults.mode = NOMINAL)
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE NominalR
+    VAR
+        client : Client(queue);
+        server : Server_#Extended(queue);
+        queue : Queue(Q_SIZE, client.request_toggle, server.request_toggle);
+    DEFINE
+        Q_SIZE := 4;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Client(queue)
+    VAR
+        client_state : {sending, sent};
+        request_toggle : boolean;
+
+    ASSIGN
+        init(client_state) := sending;
+        init(request_toggle) := FALSE;
+        next(client_state) := case
+(client_state = sending & queue.full) : sending;
+(client_state = sending & !queue.full) : sent;
+((client_state = sent & !queue.full) & request_toggle = queue.last_client_toggle) : sending;
+(client_state = sent & queue.full) : sent;
+TRUE : client_state;
+esac;
+
+        next(request_toggle) := case
+(client_state = sending & !queue.full) : !request_toggle;
+TRUE : request_toggle;
+esac;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Server_#Extended(queue)
+    VAR
+        Server_faults : Server_faults_FM_Mod(server_state_#nominal, receiving, received, failure);
+    VAR
+        server_state_#nominal : {receiving, received};
+        request_toggle : boolean;
+
+    IVAR
+        fev_receiving : boolean;
+        fev_received : boolean;
+        nev : boolean;
+        failure : boolean;
+
+    DEFINE
+        server_state := Server_faults.server_state_#fault;
+
+    ASSIGN
+        init(server_state_#nominal) := receiving;
+        init(request_toggle) := FALSE;
+        next(server_state_#nominal) := case
+(server_state = receiving & queue.empty) : receiving;
+(server_state = receiving & !queue.empty) : received;
+((server_state = received & !queue.empty) & request_toggle = queue.last_server_toggle) : receiving;
+(server_state = received & queue.empty) : received;
+TRUE : server_state;
+esac;
+
+        next(request_toggle) := case
+(server_state = receiving & !queue.empty) : !request_toggle;
+TRUE : request_toggle;
+esac;
+
+    TRANS nev = FALSE;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Server_faults_FM_Mod(server_state__#read, term_#1, term_#2, failure)
+    VAR
+        Server_StuckReceiving : Server_StuckReceiving_fm_Mod(mode = NOMINAL, mode_is_Server_StuckReceiving, term_#1, server_state__#read, server_state__#write, event = _#NoEvent, failure);
+        Server_StuckReceived : Server_StuckReceived_fm_Mod(mode = NOMINAL, mode_is_Server_StuckReceived, term_#2, server_state__#read, server_state__#write, event = _#NoEvent, failure);
+    VAR
+        mode : {NOMINAL, Server_StuckReceiving#FAULT, Server_StuckReceived#FAULT};
+        server_state__#write : {receiving, received};
+
+    IVAR
+        event : {_#NoEvent};
+
+    DEFINE
+        NoEvent := event = _#NoEvent;
+        cando_Server_StuckReceiving#FAULT := ((mode = NOMINAL & Server_StuckReceiving.trans_trig_guard_#0) | (mode = Server_StuckReceiving#FAULT & Server_StuckReceiving.trans_trig_guard_#1));
+        cando_Server_StuckReceived#FAULT := ((mode = NOMINAL & Server_StuckReceived.trans_trig_guard_#0) | (mode = Server_StuckReceived#FAULT & Server_StuckReceived.trans_trig_guard_#1));
+        server_state_#fault := case
+mode = NOMINAL : server_state__#read;
+(mode_is_Server_StuckReceived | mode_is_Server_StuckReceiving) : server_state__#write;
+TRUE : server_state__#read;
+esac;
+        mode_is_Server_StuckReceiving := mode = Server_StuckReceiving#FAULT;
+        mode_is_Server_StuckReceived := mode = Server_StuckReceived#FAULT;
+
+    INIT mode = NOMINAL;
+
+    TRANS case
+((mode = Server_StuckReceived#FAULT & Server_StuckReceived.trans_trig_guard_#1) | (mode = NOMINAL & Server_StuckReceived.trans_trig_guard_#0)) : next(mode) = Server_StuckReceived#FAULT;
+((mode = Server_StuckReceiving#FAULT & Server_StuckReceiving.trans_trig_guard_#1) | (mode = NOMINAL & Server_StuckReceiving.trans_trig_guard_#0)) : next(mode) = Server_StuckReceiving#FAULT;
+TRUE : (next(mode) = mode & NoEvent);
+esac;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Server_StuckReceiving_fm_Mod(is_nominal, is_fault, term, input, varout, ev_#NoEvent, failure)
+    VAR
+        Server_StuckReceivingEM : Server_StuckReceiving_fm_EM_Mod(is_nominal, is_fault, term, input, varout);
+    DEFINE
+        NoEvent := ev_#NoEvent;
+        trans_trig_guard_#0 := failure;
+        trans_trig_guard_#1 := NoEvent;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Server_StuckReceiving_fm_EM_Mod(is_nominal, is_fault, term, input, varout)
+    TRANS (!(!is_fault & next(is_fault)) | next(varout) = next(term));
+
+    TRANS (!(is_fault & next(is_fault)) | next(varout) = varout);
+
+    TRANS (!(is_nominal & next(is_nominal)) | next(varout) = varout);
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Server_StuckReceived_fm_Mod(is_nominal, is_fault, term, input, varout, ev_#NoEvent, failure)
+    VAR
+        Server_StuckReceivedEM : Server_StuckReceived_fm_EM_Mod(is_nominal, is_fault, term, input, varout);
+    DEFINE
+        NoEvent := ev_#NoEvent;
+        trans_trig_guard_#0 := failure;
+        trans_trig_guard_#1 := NoEvent;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Server_StuckReceived_fm_EM_Mod(is_nominal, is_fault, term, input, varout)
+    TRANS (!(!is_fault & next(is_fault)) | next(varout) = next(term));
+
+    TRANS (!(is_fault & next(is_fault)) | next(varout) = varout);
+
+    TRANS (!(is_nominal & next(is_nominal)) | next(varout) = varout);
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE Queue(Q_SIZE, client_toggle, server_toggle)
+    VAR
+        head : 0 .. 3;
+        tail : 0 .. 3;
+        last_client_toggle : boolean;
+        last_server_toggle : boolean;
+
+    DEFINE
+        empty := tail = head;
+        full := (tail + 1) mod Q_SIZE = head;
+
+    ASSIGN
+        init(head) := 0;
+        init(tail) := 0;
+        init(last_client_toggle) := FALSE;
+        init(last_server_toggle) := FALSE;
+        next(tail) := case
+client_toggle != last_client_toggle : (tail + 1) mod Q_SIZE;
+TRUE : tail;
+esac;
+
+        next(head) := case
+server_toggle != last_server_toggle : (head + 1) mod Q_SIZE;
+TRUE : head;
+esac;
+
+        next(last_client_toggle) := case
+client_toggle != last_client_toggle : client_toggle;
+TRUE : last_client_toggle;
+esac;
+
+        next(last_server_toggle) := case
+server_toggle != last_server_toggle : server_toggle;
+TRUE : last_server_toggle;
+esac;
+
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
+-- ===============================================================================
+MODULE MasterCC#
+
+-- ===============================================================================
+--                               End of module
+-- ===============================================================================
+
