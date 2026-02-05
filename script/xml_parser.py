@@ -9,7 +9,6 @@ class Fault:
     def __repr__(self):
         return f"Fault(type={self.type}, variable={self.variable}, value={self.value})"
 
-
 class FaultModel:
     def __init__(self, model_file, target_module, redundancy, faults):
         self.model_file = model_file

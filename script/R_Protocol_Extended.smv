@@ -105,7 +105,7 @@ ASSIGN
             server_state = received & !queue.empty & request_toggle = queue.last_server_toggle: receiving;
             server_state = received & queue.empty : received;
             TRUE : server_state;
-            esac;
+        esac;
 
     next(request_toggle) := case
         fault_mode = none &

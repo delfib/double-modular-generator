@@ -103,35 +103,33 @@ class StuckAtInjector:
                 faults_by_var[fault.variable] = []
             faults_by_var[fault.variable].append(fault)
         
+        """ for exmaple: faults_by_var = {'server_state': [Fault(stuck_receiving), Fault(stuck_received)]}"""
+
         # Inject into each affected variable's next() assignment
         for variable, var_faults in faults_by_var.items():
             module_text = self._inject_into_next_assignment(module_text, variable, var_faults)
         
         return module_text
-    
+
     def _inject_into_next_assignment(self, text, variable, faults):
         """Inject fault conditions at the start of a next(variable) case statement"""
-        # Pattern: next(variable) := case ... esac;
-        pattern = rf'(next\({re.escape(variable)}\)\s*:=\s*case)(.*?)(esac;)'
-        match = re.search(pattern, text, re.DOTALL)
+       
+        # Find: next(variable) := case
+        pattern = rf'next\({re.escape(variable)}\)\s*:=\s*case'
+        match = re.search(pattern, text)
         
         if not match:
             raise ValueError(f"Could not find next({variable}) assignment")
         
-        prefix = match.group(1)
-        original_cases = match.group(2)
-        suffix = match.group(3)
-        
-        # Build fault condition cases
-        fault_cases = "\n"
+        # Build fault lines
+        fault_lines = ""
         for fault in faults:
             mode_name = f"stuck_{fault.value}"
-            fault_cases += f"        fault_mode = {mode_name} : {fault.value};\n"
+            fault_lines += f"        fault_mode = {mode_name} : {fault.value};\n"
         
-        # Reconstruct with fault cases first
-        new_assignment = f"{prefix}{fault_cases}{original_cases}    {suffix}"
-        
-        return text[:match.start()] + new_assignment + text[match.end():]
+        # Insert right after "case"
+        insert_pos = match.end()
+        return text[:insert_pos] + "\n" + fault_lines + text[insert_pos:]
     
     def protect_toggle_logic(self, module_text):
         """
@@ -266,7 +264,7 @@ class FaultInjectionEngine:
 
 def main():
     if len(sys.argv) != 4:
-        print("Usage: python inject_faults.py <input.smv> <faults.xml> <output.smv>")
+        print("Usage: python3 fault_injector.py <input.smv> <faults.xml> <output.smv>")
         sys.exit(1)
     
     input_smv = sys.argv[1]
