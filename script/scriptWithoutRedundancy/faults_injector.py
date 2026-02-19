@@ -208,59 +208,6 @@ class FaultInjectionEngine:
         new_content = ''.join(lines[:start_idx]) + modified_module + ''.join(lines[end_idx:])
         
         return new_content
-    
-    def replicate_for_redundancy(self, smv_content):
-        """Create redundant instances of the target module in Nominal Model."""
-        if self.fault_model.redundancy <= 1:
-            return smv_content
-        
-        # Find NominalR module
-        try:
-            start_idx, end_idx = find_module(smv_content, "NominalR")   # TODO: should this nominal wrapper be a thing across all models?
-        except ValueError:
-            print("Warning: NominalR module not found, skipping redundancy")
-            return smv_content
-        
-        lines = smv_content.splitlines(keepends=True)
-        nominal_lines = lines[start_idx:end_idx]
-        
-        # Find the instance declaration for target module
-        target_lower = self.fault_model.target_module.lower()
-        
-        new_nominal = []
-        found_target = False
-        
-        for line in nominal_lines:
-            # Check if this line declares an instance of the target module
-            if f': process {self.fault_model.target_module}' in line:
-                found_target = True
-                # Extract the pattern: "instance_name : process Module(params);"
-                match = re.match(r'(\s*)(\w+)\s*:\s*process\s+(\w+)\((.*?)\);', line)
-                if match:
-                    indent = match.group(1)
-                    instance_name = match.group(2)
-                    module_name = match.group(3)
-                    params = match.group(4)
-                    
-                    # Create multiple instances
-                    for i in range(1, self.fault_model.redundancy + 1):
-                        new_instance = f"{indent}{instance_name}_{i} : process {module_name}({params});\n"
-                        new_nominal.append(new_instance)
-                else:
-                    # Couldn't parse, keep original
-                    new_nominal.append(line)
-            else:
-                new_nominal.append(line)
-        
-        if not found_target:
-            print(f"Warning: Could not find instance of {self.fault_model.target_module} in NominalR")
-            return smv_content
-        
-        # Replace NominalR
-        new_content = ''.join(lines[:start_idx]) + ''.join(new_nominal) + ''.join(lines[end_idx:])
-        
-        return new_content
-
 
 def main():
     if len(sys.argv) != 4:
@@ -295,12 +242,7 @@ def main():
     # Inject faults
     print(f"\n[4] Injecting faults")
     modified_content = engine.inject(smv_content)
-    
-    # Handle redundancy
-    if fault_model.redundancy > 1:
-        print(f"\n[5] Creating redundant instances")
-        modified_content = engine.replicate_for_redundancy(modified_content)
-    
+     
     # Save result
     print(f"\n[6] Saving extended model: {output_smv}")
     save_smv(output_smv, modified_content)

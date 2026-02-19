@@ -5,8 +5,6 @@
 
     <target-module>Server</target-module>
 
-    <redundancy count="2"/>
-
     <faults>
         <fault id="stuck_receiving">
             <type>stuck-at</type>
