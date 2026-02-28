@@ -1,37 +1,37 @@
 -- =========================================================
--- Request Queue module
+-- Queue module
 -- =========================================================
-MODULE Request_Queue(Q_SIZE, client_toggle, server_toggle)
+MODULE Queue(Q_SIZE, producer_toggle, consumer_toggle)
 VAR
     head : 0..3;
     tail : 0..3;
-    last_client_toggle : boolean;  -- last toggle value we saw
-    last_server_toggle : boolean;
+    last_producer_toggle : boolean;  -- last toggle value we saw
+    last_consumer_toggle : boolean;
 
 ASSIGN
     init(head) := 0;
     init(tail) := 0;
-    init(last_client_toggle) := FALSE;
-    init(last_server_toggle) := FALSE;
+    init(last_producer_toggle) := FALSE;
+    init(last_consumer_toggle) := FALSE;
 
     next(tail) := case
-        (client_toggle != last_client_toggle) : (tail + 1) mod Q_SIZE;    -- produce if toggle changed (new request detected)
+        (producer_toggle != last_producer_toggle) : (tail + 1) mod Q_SIZE;    -- produce if toggle changed (new request detected)
         TRUE : tail;
     esac;
 
     next(head) := case
-        (server_toggle != last_server_toggle) : (head + 1) mod Q_SIZE;
+        (consumer_toggle != last_consumer_toggle) : (head + 1) mod Q_SIZE;
         TRUE : head;
     esac;
 
-    next(last_client_toggle) := case
-        (client_toggle != last_client_toggle) : client_toggle;
-        TRUE : last_client_toggle;
+    next(last_producer_toggle) := case
+        (producer_toggle != last_producer_toggle) : producer_toggle;
+        TRUE : last_producer_toggle;
     esac;
 
-    next(last_server_toggle) := case
-        (server_toggle != last_server_toggle) : server_toggle;
-        TRUE : last_server_toggle;
+    next(last_consumer_toggle) := case
+        (consumer_toggle != last_consumer_toggle) : consumer_toggle;
+        TRUE : last_consumer_toggle;
     esac;
 
 DEFINE
@@ -41,49 +41,6 @@ DEFINE
 FAIRNESS
     running
 
-
--- =========================================================
--- Acknowledgement Queue module
--- =========================================================
-MODULE Ack_Queue(Q_SIZE, client_toggle, server_toggle)
-VAR
-    head : 0..3;
-    tail : 0..3;
-    last_client_toggle : boolean;  -- last toggle value we saw
-    last_server_toggle : boolean;
-
-ASSIGN
-    init(head) := 0;
-    init(tail) := 0;
-    init(last_client_toggle) := FALSE;
-    init(last_server_toggle) := FALSE;
-
-    next(tail) := case
-        (server_toggle != last_server_toggle) : (tail + 1) mod Q_SIZE;    -- produce if toggle changed (new ack detected)
-        TRUE : tail;
-    esac;
-
-    next(head) := case
-        (client_toggle != last_client_toggle) : (head + 1) mod Q_SIZE;
-        TRUE : head;
-    esac;
-
-    next(last_server_toggle) := case
-        (server_toggle != last_server_toggle) : server_toggle;
-        TRUE : last_server_toggle;
-    esac;
-    
-    next(last_client_toggle) := case
-        (client_toggle != last_client_toggle) : client_toggle;
-        TRUE : last_client_toggle;
-    esac;
-
-DEFINE
-    full := ((tail + 1) mod Q_SIZE = head);
-    empty := (tail = head);
-
-FAIRNESS
-    running
 
 -- =========================================================
 -- Client module
@@ -107,7 +64,7 @@ ASSIGN
         case
             client_request_state = sending & request_queue.full : sending;
             client_request_state = sending & !request_queue.full & ack_received : sent;
-            client_request_state = sent & !request_queue.full & request_toggle = request_queue.last_client_toggle : sending;
+            client_request_state = sent & !request_queue.full & request_toggle = request_queue.last_producer_toggle : sending;
             client_request_state = sent & request_queue.full : sent;
             TRUE : client_request_state;
         esac;
@@ -116,7 +73,7 @@ ASSIGN
         case
             client_ack_state = receiving & ack_queue.empty : receiving;
             client_ack_state = receiving & !ack_queue.empty : received;
-            client_ack_state = received & !ack_queue.empty & ack_toggle = ack_queue.last_client_toggle : receiving;
+            client_ack_state = received & !ack_queue.empty & ack_toggle = ack_queue.last_consumer_toggle : receiving;
             client_ack_state = received & ack_queue.empty : received;
             TRUE : client_ack_state;
         esac;
@@ -163,7 +120,7 @@ ASSIGN
         case
             server_request_state = receiving & request_queue.empty : receiving;
             server_request_state = receiving & !request_queue.empty : received;
-            server_request_state = received & !request_queue.empty & request_toggle = request_queue.last_server_toggle: receiving;
+            server_request_state = received & !request_queue.empty & request_toggle = request_queue.last_consumer_toggle: receiving;
             server_request_state = received & request_queue.empty : received;
             TRUE : server_request_state;
         esac;
@@ -172,7 +129,7 @@ ASSIGN
         case
             server_ack_state = sending & ack_queue.full : sending;
             server_ack_state = sending & !ack_queue.full & request_received : sent;
-            server_ack_state = sent & !ack_queue.full & ack_toggle = ack_queue.last_server_toggle : sending;
+            server_ack_state = sent & !ack_queue.full & ack_toggle = ack_queue.last_producer_toggle : sending;
             server_ack_state = sent & ack_queue.full : sent;
             TRUE : server_ack_state;
         esac;
@@ -206,8 +163,8 @@ DEFINE
 VAR
     client : process Client(request_queue, ack_queue);
     server : process Server(request_queue, ack_queue);
-    request_queue : process Request_Queue(Q_SIZE, client.request_toggle, server.request_toggle);
-    ack_queue : process Ack_Queue(Q_SIZE, client.ack_toggle, server.ack_toggle);
+    request_queue : process Queue(Q_SIZE, client.request_toggle, server.request_toggle);
+    ack_queue : process Queue(Q_SIZE, server.ack_toggle, client.ack_toggle);
 
 
 -- =========================================================
@@ -281,12 +238,12 @@ SPEC AG ((nominal.server.server_request_state = receiving & AX nominal.server.se
     !nominal.request_queue.empty)
 
 -- If the server enters 'received'/'sent' state, the queue head/tail must eventually advance
-SPEC AG ((nominal.server.server_request_state = received) -> AF (nominal.server.request_toggle = nominal.request_queue.last_server_toggle))
-SPEC AG ((nominal.server.server_ack_state = sent) -> AF (nominal.server.ack_toggle = nominal.ack_queue.last_server_toggle))
+SPEC AG ((nominal.server.server_request_state = received) -> AF (nominal.server.request_toggle = nominal.request_queue.last_consumer_toggle))
+SPEC AG ((nominal.server.server_ack_state = sent) -> AF (nominal.server.ack_toggle = nominal.ack_queue.last_producer_toggle))
 
 -- If the client enters 'sent'/'received' state, the queue tail/head must eventually advance
-SPEC AG ((nominal.client.client_request_state = sent) -> AF (nominal.client.request_toggle = nominal.request_queue.last_client_toggle))
-SPEC AG ((nominal.client.client_ack_state = received) -> AF (nominal.client.ack_toggle = nominal.ack_queue.last_client_toggle))
+SPEC AG ((nominal.client.client_request_state = sent) -> AF (nominal.client.request_toggle = nominal.request_queue.last_producer_toggle))
+SPEC AG ((nominal.client.client_ack_state = received) -> AF (nominal.client.ack_toggle = nominal.ack_queue.last_consumer_toggle))
 
 -- Client cannot send two requests without receiving an ack in between
 SPEC AG (nominal.client.client_request_state = sent -> AF nominal.client.ack_received)
@@ -322,35 +279,35 @@ SPEC AG (nominal.server.server_ack_state = sent -> AF nominal.client.client_ack_
 
 -- Client request/ack toggle changes when producing/consuming
 SPEC AG ((nominal.client.client_request_state = sending & !nominal.request_queue.full & nominal.client.ack_received) ->
-         AF nominal.client.request_toggle != nominal.request_queue.last_client_toggle)
+         AF nominal.client.request_toggle != nominal.request_queue.last_producer_toggle)
 SPEC AG ((nominal.client.client_ack_state = receiving & !nominal.ack_queue.empty) ->
-         AF nominal.client.ack_toggle != nominal.ack_queue.last_client_toggle)
+         AF nominal.client.ack_toggle != nominal.ack_queue.last_consumer_toggle)
 
 -- Server request/ack toggle changes when consuming/producing
 SPEC AG ((nominal.server.server_request_state = receiving & !nominal.request_queue.empty) ->
-         AF nominal.server.request_toggle != nominal.request_queue.last_server_toggle)
+         AF nominal.server.request_toggle != nominal.request_queue.last_consumer_toggle)
 SPEC AG ((nominal.server.server_ack_state = sending & !nominal.ack_queue.full & nominal.server.request_received) ->
-         AF nominal.server.ack_toggle != nominal.ack_queue.last_server_toggle)
+         AF nominal.server.ack_toggle != nominal.ack_queue.last_producer_toggle)
 
 -- Request Queue's last_client_toggle tracks client's request_toggle after production
 SPEC AG ((nominal.client.client_request_state = sent & 
-          nominal.client.request_toggle != nominal.request_queue.last_client_toggle) ->
-         AF nominal.request_queue.last_client_toggle = nominal.client.request_toggle)
+          nominal.client.request_toggle != nominal.request_queue.last_producer_toggle) ->
+         AF nominal.request_queue.last_producer_toggle = nominal.client.request_toggle)
 
 -- Request Queue's last_server_toggle tracks server's request_toggle after consumption
 SPEC AG ((nominal.server.server_request_state = received & 
-          nominal.server.request_toggle != nominal.request_queue.last_server_toggle) ->
-         AF nominal.request_queue.last_server_toggle = nominal.server.request_toggle)
+          nominal.server.request_toggle != nominal.request_queue.last_consumer_toggle) ->
+         AF nominal.request_queue.last_consumer_toggle = nominal.server.request_toggle)
 
 -- Ack Queue's last_client_toggle tracks client's request_toggle after consumption
 SPEC AG ((nominal.client.client_ack_state = received & 
-          nominal.client.ack_toggle != nominal.ack_queue.last_client_toggle) ->
-         AF nominal.ack_queue.last_client_toggle = nominal.client.ack_toggle)
+          nominal.client.ack_toggle != nominal.ack_queue.last_consumer_toggle) ->
+         AF nominal.ack_queue.last_consumer_toggle = nominal.client.ack_toggle)
 
 -- Ack Request Queue's last_server_toggle tracks server's request_toggle after production
 SPEC AG ((nominal.server.server_ack_state = sent & 
-          nominal.server.ack_toggle != nominal.ack_queue.last_server_toggle) ->
-         AF nominal.ack_queue.last_server_toggle = nominal.server.ack_toggle)
+          nominal.server.ack_toggle != nominal.ack_queue.last_producer_toggle) ->
+         AF nominal.ack_queue.last_producer_toggle = nominal.server.ack_toggle)
 
 
 -- FAIRNESS VERIFICATION
